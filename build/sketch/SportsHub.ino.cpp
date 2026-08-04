@@ -1,0 +1,483 @@
+#line 1 "C:\\Users\\Jay\\OneDrive\\Documents\\Arduino\\SportsHub\\SportsHub.ino"
+/**
+ * Peter's Sports Hub
+ *
+ * Hardware:
+ * ESP32-S3 + ST7789 TFT
+ * 240 x 280 display
+ *
+ * Stage 1:
+ * Static sports dashboard
+ */
+
+#include <Arduino.h>
+#include "Arduino_GFX_Library.h"
+#include "BluetoothManager.h"
+#include "GameManager.h"
+#include "pin_config.h"
+#include "HWCDC.h"
+
+// USB serial connection for debugging
+HWCDC USBSerial;
+
+// Display hardware
+Arduino_DataBus *bus = new Arduino_ESP32SPI(
+  LCD_DC,
+  LCD_CS,
+  LCD_SCK,
+  LCD_MOSI
+);
+
+Arduino_GFX *gfx = new Arduino_ST7789(
+  bus,
+  LCD_RST,
+  0,
+  true,
+  LCD_WIDTH,
+  LCD_HEIGHT,
+  0,
+  20,
+  0,
+  0
+);
+
+// Custom RGB565 colors
+const uint16_t COLOR_NAVY = 0x0010;
+const uint16_t COLOR_DARK_BLUE = 0x0211;
+const uint16_t COLOR_LIGHT_BLUE = 0x5D7F;
+const uint16_t COLOR_GRAY = 0x8410;
+const uint16_t COLOR_DARK_GRAY = 0x3186;
+const uint16_t COLOR_STATUS_BG = 0x03E0;
+
+const uint8_t BOOT_BUTTON_PIN = 0;
+const unsigned long BUTTON_DEBOUNCE_MS = 50;
+const unsigned long DOUBLE_CLICK_WINDOW_MS = 300;
+
+GameManager gameManager;
+BluetoothManager bluetoothManager;
+
+bool lastBootButtonReading = HIGH;
+bool stableBootButtonState = HIGH;
+bool bootButtonWasPressed = false;
+unsigned long lastBootButtonChangeTime = 0;
+uint8_t pendingClickCount = 0;
+unsigned long lastClickTime = 0;
+bool lastDisplayedBluetoothConnected = false;
+
+
+/**
+ * Prepare the LCD and backlight.
+ */
+#line 70 "C:\\Users\\Jay\\OneDrive\\Documents\\Arduino\\SportsHub\\SportsHub.ino"
+void initializeDisplay();
+#line 90 "C:\\Users\\Jay\\OneDrive\\Documents\\Arduino\\SportsHub\\SportsHub.ino"
+void drawSplashScreen();
+#line 123 "C:\\Users\\Jay\\OneDrive\\Documents\\Arduino\\SportsHub\\SportsHub.ino"
+void drawTeamName(const char *teamName, int16_t x, int16_t y);
+#line 157 "C:\\Users\\Jay\\OneDrive\\Documents\\Arduino\\SportsHub\\SportsHub.ino"
+void drawScore(uint8_t score, uint16_t color, int16_t y);
+#line 180 "C:\\Users\\Jay\\OneDrive\\Documents\\Arduino\\SportsHub\\SportsHub.ino"
+void drawHeader();
+#line 208 "C:\\Users\\Jay\\OneDrive\\Documents\\Arduino\\SportsHub\\SportsHub.ino"
+void drawScoreboard(const GameData &game);
+#line 252 "C:\\Users\\Jay\\OneDrive\\Documents\\Arduino\\SportsHub\\SportsHub.ino"
+void drawStatusBar();
+#line 274 "C:\\Users\\Jay\\OneDrive\\Documents\\Arduino\\SportsHub\\SportsHub.ino"
+void drawDashboard();
+#line 289 "C:\\Users\\Jay\\OneDrive\\Documents\\Arduino\\SportsHub\\SportsHub.ino"
+void handleBluetoothCommand(const String &message);
+#line 315 "C:\\Users\\Jay\\OneDrive\\Documents\\Arduino\\SportsHub\\SportsHub.ino"
+void handleBluetoothMessages();
+#line 339 "C:\\Users\\Jay\\OneDrive\\Documents\\Arduino\\SportsHub\\SportsHub.ino"
+void handlePendingClick();
+#line 361 "C:\\Users\\Jay\\OneDrive\\Documents\\Arduino\\SportsHub\\SportsHub.ino"
+void countBootButtonClick();
+#line 382 "C:\\Users\\Jay\\OneDrive\\Documents\\Arduino\\SportsHub\\SportsHub.ino"
+void handleBootButton();
+#line 423 "C:\\Users\\Jay\\OneDrive\\Documents\\Arduino\\SportsHub\\SportsHub.ino"
+void setup();
+#line 446 "C:\\Users\\Jay\\OneDrive\\Documents\\Arduino\\SportsHub\\SportsHub.ino"
+void loop();
+#line 70 "C:\\Users\\Jay\\OneDrive\\Documents\\Arduino\\SportsHub\\SportsHub.ino"
+void initializeDisplay()
+{
+  if (!gfx->begin())
+  {
+    USBSerial.println("Display initialization failed!");
+    return;
+  }
+
+  pinMode(LCD_BL, OUTPUT);
+  digitalWrite(LCD_BL, HIGH);
+
+  gfx->fillScreen(BLACK);
+
+  USBSerial.println("Display initialized.");
+}
+
+
+/**
+ * Draw the startup screen.
+ */
+void drawSplashScreen()
+{
+  gfx->fillScreen(COLOR_NAVY);
+
+  // Decorative border
+  gfx->drawRoundRect(
+    8,
+    8,
+    gfx->width() - 16,
+    gfx->height() - 16,
+    12,
+    COLOR_LIGHT_BLUE
+  );
+
+  gfx->setTextColor(WHITE);
+  gfx->setTextSize(3);
+  gfx->setCursor(48, 82);
+  gfx->println("PETER'S");
+
+  gfx->setTextColor(CYAN);
+  gfx->setCursor(32, 120);
+  gfx->println("SPORTS HUB");
+
+  gfx->setTextColor(COLOR_GRAY);
+  gfx->setTextSize(1);
+  gfx->setCursor(87, 244);
+  gfx->println("Version 0.1");
+}
+
+
+/**
+ * Draw text with size 1 if the team name is long.
+ */
+void drawTeamName(const char *teamName, int16_t x, int16_t y)
+{
+  uint8_t nameLength = strlen(teamName);
+  uint8_t textSize = 2;
+  uint8_t maxChars = 11;
+
+  if (nameLength > maxChars)
+  {
+    textSize = 1;
+    maxChars = 21;
+    y += 5;
+  }
+
+  gfx->setTextColor(WHITE);
+  gfx->setTextSize(textSize);
+  gfx->setCursor(x, y);
+
+  for (uint8_t i = 0; i < nameLength && i < maxChars; i++)
+  {
+    if (i == maxChars - 1 && nameLength > maxChars)
+    {
+      gfx->print(".");
+    }
+    else
+    {
+      gfx->print(teamName[i]);
+    }
+  }
+}
+
+
+/**
+ * Draw a score aligned to the right side of the card.
+ */
+void drawScore(uint8_t score, uint16_t color, int16_t y)
+{
+  int16_t x = 183;
+
+  if (score >= 100)
+  {
+    x = 165;
+  }
+  else if (score < 10)
+  {
+    x = 201;
+  }
+
+  gfx->setTextColor(color);
+  gfx->setTextSize(3);
+  gfx->setCursor(x, y);
+  gfx->println(score);
+}
+
+
+/**
+ * Draw the application's top title area.
+ */
+void drawHeader()
+{
+  gfx->fillRoundRect(10, 8, 220, 58, 8, COLOR_DARK_BLUE);
+  gfx->drawRoundRect(10, 8, 220, 58, 8, COLOR_LIGHT_BLUE);
+
+  gfx->setTextColor(COLOR_GRAY);
+  gfx->setTextSize(1);
+  gfx->setCursor(22, 16);
+  gfx->println("PETER'S SPORTS HUB");
+
+  gfx->setTextColor(CYAN);
+  gfx->setTextSize(3);
+  gfx->setCursor(22, 34);
+  gfx->println(gameManager.getCurrentLeagueName());
+
+  gfx->setTextColor(WHITE);
+  gfx->setTextSize(1);
+  gfx->setCursor(178, 42);
+  gfx->print("L ");
+  gfx->print(gameManager.getCurrentLeagueNumber());
+  gfx->print("/");
+  gfx->println(gameManager.getLeagueCount());
+}
+
+
+/**
+ * Draw a scoreboard from game data.
+ */
+void drawScoreboard(const GameData &game)
+{
+  // Scoreboard card
+  gfx->fillRoundRect(10, 78, 220, 130, 10, COLOR_DARK_GRAY);
+  gfx->drawRoundRect(10, 78, 220, 130, 10, COLOR_LIGHT_BLUE);
+
+  // Game position
+  gfx->setTextColor(COLOR_GRAY);
+  gfx->setTextSize(1);
+  gfx->setCursor(22, 91);
+  gfx->print("Game ");
+  gfx->print(gameManager.getCurrentGameNumber());
+  gfx->print(" of ");
+  gfx->println(gameManager.getCurrentGameCount());
+
+  // Status badge
+  gfx->fillRoundRect(157, 87, 54, 18, 5, COLOR_STATUS_BG);
+  gfx->setTextColor(BLACK);
+  gfx->setTextSize(1);
+  gfx->setCursor(167, 93);
+  gfx->println(game.status);
+
+  // Divider
+  gfx->drawFastHLine(20, 113, 200, COLOR_GRAY);
+
+  // Teams
+  drawTeamName(game.awayTeam, 22, 128);
+  drawTeamName(game.homeTeam, 22, 160);
+
+  // Scores
+  drawScore(game.awayScore, GREEN, 123);
+  drawScore(game.homeScore, WHITE, 155);
+
+  // Game clock
+  gfx->setTextColor(YELLOW);
+  gfx->setTextSize(1);
+  gfx->setCursor(94, 192);
+  gfx->println(game.clock);
+}
+
+
+/**
+ * Draw the bottom status area.
+ */
+void drawStatusBar()
+{
+  gfx->fillRoundRect(10, 220, 220, 48, 8, COLOR_DARK_BLUE);
+
+  gfx->setTextColor(GREEN);
+  gfx->setTextSize(1);
+  gfx->setCursor(22, 231);
+  gfx->println("SYSTEM ONLINE");
+
+  gfx->setTextColor(WHITE);
+  gfx->setCursor(22, 249);
+  gfx->println(bluetoothManager.getBluetoothStatusText());
+
+  gfx->setTextColor(COLOR_GRAY);
+  gfx->setCursor(192, 249);
+  gfx->println("0.1");
+}
+
+
+/**
+ * Draw the complete dashboard.
+ */
+void drawDashboard()
+{
+  const GameData &game = gameManager.getCurrentGame();
+
+  gfx->fillScreen(BLACK);
+
+  drawHeader();
+  drawScoreboard(game);
+  drawStatusBar();
+}
+
+
+/**
+ * Handle simple BLE text commands from a phone.
+ */
+void handleBluetoothCommand(const String &message)
+{
+  if (message == "NEXT_GAME")
+  {
+    USBSerial.println("BLE command: NEXT_GAME");
+    gameManager.nextGame();
+    drawDashboard();
+    return;
+  }
+
+  if (message == "NEXT_LEAGUE")
+  {
+    USBSerial.println("BLE command: NEXT_LEAGUE");
+    gameManager.nextLeague();
+    drawDashboard();
+    return;
+  }
+
+  USBSerial.print("BLE message ignored: ");
+  USBSerial.println(message);
+}
+
+
+/**
+ * Keep BLE handling isolated from display and button code.
+ */
+void handleBluetoothMessages()
+{
+  bluetoothManager.updateBluetooth();
+
+  bool bluetoothConnected = bluetoothManager.isBluetoothConnected();
+
+  if (bluetoothConnected != lastDisplayedBluetoothConnected)
+  {
+    lastDisplayedBluetoothConnected = bluetoothConnected;
+    drawDashboard();
+  }
+
+  if (!bluetoothManager.hasReceivedMessage())
+  {
+    return;
+  }
+
+  handleBluetoothCommand(bluetoothManager.getReceivedMessage());
+}
+
+
+/**
+ * Run a single click after the double-click window has passed.
+ */
+void handlePendingClick()
+{
+  if (pendingClickCount != 1)
+  {
+    return;
+  }
+
+  if ((millis() - lastClickTime) < DOUBLE_CLICK_WINDOW_MS)
+  {
+    return;
+  }
+
+  pendingClickCount = 0;
+  USBSerial.println("Single click: next game");
+  gameManager.nextGame();
+  drawDashboard();
+}
+
+
+/**
+ * Count one click after a clean press and release.
+ */
+void countBootButtonClick()
+{
+  unsigned long now = millis();
+
+  if (pendingClickCount == 1 && (now - lastClickTime) <= DOUBLE_CLICK_WINDOW_MS)
+  {
+    pendingClickCount = 0;
+    USBSerial.println("Double click: next league");
+    gameManager.nextLeague();
+    drawDashboard();
+    return;
+  }
+
+  pendingClickCount = 1;
+  lastClickTime = now;
+}
+
+
+/**
+ * Read the BOOT button and detect clean clicks without blocking.
+ */
+void handleBootButton()
+{
+  bool currentReading = digitalRead(BOOT_BUTTON_PIN);
+
+  if (currentReading != lastBootButtonReading)
+  {
+    lastBootButtonChangeTime = millis();
+    lastBootButtonReading = currentReading;
+  }
+
+  if ((millis() - lastBootButtonChangeTime) < BUTTON_DEBOUNCE_MS)
+  {
+    handlePendingClick();
+    return;
+  }
+
+  if (currentReading == stableBootButtonState)
+  {
+    handlePendingClick();
+    return;
+  }
+
+  stableBootButtonState = currentReading;
+
+  if (stableBootButtonState == LOW)
+  {
+    bootButtonWasPressed = true;
+    handlePendingClick();
+    return;
+  }
+
+  if (bootButtonWasPressed)
+  {
+    bootButtonWasPressed = false;
+    countBootButtonClick();
+  }
+
+  handlePendingClick();
+}
+
+
+void setup()
+{
+  USBSerial.begin(115200);
+  USBSerial.println("Starting Peter's Sports Hub...");
+
+  pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
+  lastBootButtonReading = digitalRead(BOOT_BUTTON_PIN);
+  stableBootButtonState = lastBootButtonReading;
+
+  initializeDisplay();
+  bluetoothManager.beginBluetooth();
+  lastDisplayedBluetoothConnected = bluetoothManager.isBluetoothConnected();
+
+  drawSplashScreen();
+
+  delay(2000);
+
+  drawDashboard();
+
+  USBSerial.println("Sports Hub is running.");
+}
+
+
+void loop()
+{
+  handleBluetoothMessages();
+  handleBootButton();
+}
+
