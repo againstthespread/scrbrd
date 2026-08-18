@@ -11,6 +11,8 @@
 class GameManager
 {
 public:
+  static const uint8_t MAX_RECEIVED_SLATE_GAMES = 20;
+
   const GameData &getCurrentGame();
 
   void setReceivedGame(
@@ -21,6 +23,11 @@ public:
     uint8_t homeScore,
     const char *status,
     const char *clock
+  );
+  void setReceivedSlate(
+    const char *league,
+    const GameData *games,
+    uint8_t gameCount
   );
 
   void nextGame();
@@ -37,16 +44,14 @@ public:
 private:
   uint8_t currentLeagueIndex = 0;
   uint8_t currentGameIndex = 0;
-  bool receivedGameActive = false;
+  bool receivedSlateActive = false;
   char receivedLeague[13] = "";
-  char receivedAway[33] = "";
-  char receivedHome[33] = "";
-  char receivedStatus[9] = "";
-  char receivedClock[25] = "";
-  GameData receivedGame = { receivedStatus, receivedAway, receivedHome, 0, 0, receivedClock };
+  GameData receivedGames[MAX_RECEIVED_SLATE_GAMES] = {};
+  uint8_t receivedGameCount = 0;
+  uint8_t receivedGameIndex = 0;
 
   const LeagueData &getCurrentLeague();
-  void leaveReceivedGame();
+  void leaveReceivedSlate();
 };
 
 #endif

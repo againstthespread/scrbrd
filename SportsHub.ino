@@ -64,6 +64,20 @@ uint8_t pendingClickCount = 0;
 unsigned long lastClickTime = 0;
 bool lastDisplayedBluetoothConnected = false;
 
+// Chunked slate staging is deliberately separate from GameManager's active
+// slate so incomplete transfers can never disturb the displayed games.
+const unsigned long SLATE_TRANSFER_TIMEOUT_MS = 30000;
+const uint8_t MAX_LEGACY_SLATE_GAMES = 4;
+bool slateTransferActive = false;
+char stagingSlateId[49] = "";
+char stagingLeague[13] = "";
+GameData stagingGames[GameManager::MAX_RECEIVED_SLATE_GAMES] = {};
+uint8_t stagingExpectedGames = 0;
+uint8_t stagingExpectedChunks = 0;
+uint8_t stagingReceivedGames = 0;
+uint8_t stagingNextChunkIndex = 0;
+unsigned long stagingLastActivityTime = 0;
+
 
 /**
  * Prepare the LCD and backlight.
@@ -383,6 +397,61 @@ bool readRequiredText(
 }
 
 
+bool readValidatedGame(JsonObjectConst packet, GameData &game)
+{
+  const char *away;
+  const char *home;
+  const char *status;
+  const char *clock;
+  if (!readRequiredText(packet, "away", 32, away) ||
+      !readRequiredText(packet, "home", 32, home) ||
+      !readRequiredText(packet, "status", 8, status) ||
+      !readRequiredText(packet, "clock", 24, clock))
+  {
+    return false;
+  }
+
+  if (strcmp(status, "UPCOMING") != 0 &&
+      strcmp(status, "LIVE") != 0 &&
+      strcmp(status, "FINAL") != 0)
+  {
+    rejectGamePacket("invalid status");
+    return false;
+  }
+
+  JsonVariantConst awayScore = packet["awayScore"];
+  JsonVariantConst homeScore = packet["homeScore"];
+  if (!awayScore.is<int>() || !homeScore.is<int>() ||
+      awayScore.as<int>() < 0 || awayScore.as<int>() > 255 ||
+      homeScore.as<int>() < 0 || homeScore.as<int>() > 255)
+  {
+    rejectGamePacket("invalid score");
+    return false;
+  }
+
+  JsonVariantConst eventId = packet["id"];
+  if (!eventId.isNull())
+  {
+    if (!eventId.is<const char *>() ||
+        strlen(eventId.as<const char *>()) == 0 ||
+        strlen(eventId.as<const char *>()) > 48)
+    {
+      rejectGamePacket("invalid id");
+      return false;
+    }
+    strlcpy(game.eventId, eventId.as<const char *>(), sizeof(game.eventId));
+  }
+
+  strlcpy(game.awayTeam, away, sizeof(game.awayTeam));
+  strlcpy(game.homeTeam, home, sizeof(game.homeTeam));
+  strlcpy(game.status, status, sizeof(game.status));
+  strlcpy(game.clock, clock, sizeof(game.clock));
+  game.awayScore = static_cast<uint8_t>(awayScore.as<int>());
+  game.homeScore = static_cast<uint8_t>(homeScore.as<int>());
+  return true;
+}
+
+
 bool handleGamePacket(const String &message)
 {
   if (!isValidUtf8(message))
@@ -473,8 +542,310 @@ bool handleGamePacket(const String &message)
 }
 
 
+bool handleSlatePacket(const String &message)
+{
+  if (message.length() > 512)
+  {
+    rejectGamePacket("slate exceeds 512 bytes");
+    return false;
+  }
+  if (!isValidUtf8(message))
+  {
+    rejectGamePacket("invalid UTF-8");
+    return false;
+  }
+
+  JsonDocument document;
+  DeserializationError error = deserializeJson(
+    document,
+    message.c_str(),
+    message.length()
+  );
+  if (error || !document.is<JsonObject>())
+  {
+    rejectGamePacket(error ? error.c_str() : "root is not an object");
+    return false;
+  }
+
+  JsonObjectConst packet = document.as<JsonObjectConst>();
+  if (!packet["version"].is<int>() || packet["version"].as<int>() != 1 ||
+      !packet["type"].is<const char *>() ||
+      strcmp(packet["type"].as<const char *>(), "slate") != 0)
+  {
+    rejectGamePacket("invalid slate header");
+    return false;
+  }
+
+  const char *league;
+  if (!readRequiredText(packet, "league", 12, league) ||
+      !packet["games"].is<JsonArrayConst>())
+  {
+    rejectGamePacket("invalid games");
+    return false;
+  }
+
+  JsonArrayConst games = packet["games"].as<JsonArrayConst>();
+  if (games.size() == 0 ||
+      games.size() > MAX_LEGACY_SLATE_GAMES)
+  {
+    rejectGamePacket("invalid slate game count");
+    return false;
+  }
+
+  // Validate into owned temporary storage so a malformed slate never replaces
+  // the active received slate.
+  GameData validatedGames[GameManager::MAX_RECEIVED_SLATE_GAMES] = {};
+  uint8_t index = 0;
+  for (JsonVariantConst item : games)
+  {
+    if (!item.is<JsonObjectConst>() ||
+        !readValidatedGame(item.as<JsonObjectConst>(), validatedGames[index]))
+    {
+      rejectGamePacket("invalid slate game");
+      return false;
+    }
+    index++;
+  }
+
+  gameManager.setReceivedSlate(league, validatedGames, index);
+  drawDashboard();
+  USBSerial.print("BLE slate accepted with ");
+  USBSerial.print(index);
+  USBSerial.println(" games.");
+  return true;
+}
+
+
+void clearStagingSlate(const char *reason)
+{
+  if (reason != nullptr)
+  {
+    USBSerial.print("BLE slate transfer discarded: ");
+    USBSerial.println(reason);
+  }
+  slateTransferActive = false;
+  stagingSlateId[0] = '\0';
+  stagingLeague[0] = '\0';
+  stagingExpectedGames = 0;
+  stagingExpectedChunks = 0;
+  stagingReceivedGames = 0;
+  stagingNextChunkIndex = 0;
+  stagingLastActivityTime = 0;
+}
+
+
+void expireStagingSlateIfNeeded()
+{
+  if (slateTransferActive &&
+      millis() - stagingLastActivityTime >= SLATE_TRANSFER_TIMEOUT_MS)
+  {
+    clearStagingSlate("30-second timeout");
+  }
+}
+
+
+bool readSlateTransferDocument(
+  const String &message,
+  const char *expectedType,
+  JsonDocument &document,
+  JsonObjectConst &packet
+)
+{
+  if (message.length() > 512 || !isValidUtf8(message))
+  {
+    rejectGamePacket("invalid chunked slate packet size/UTF-8");
+    return false;
+  }
+  DeserializationError error = deserializeJson(
+    document,
+    message.c_str(),
+    message.length()
+  );
+  if (error || !document.is<JsonObject>())
+  {
+    rejectGamePacket(error ? error.c_str() : "root is not an object");
+    return false;
+  }
+  packet = document.as<JsonObjectConst>();
+  if (!packet["version"].is<int>() || packet["version"].as<int>() != 1 ||
+      !packet["type"].is<const char *>() ||
+      strcmp(packet["type"].as<const char *>(), expectedType) != 0)
+  {
+    rejectGamePacket("invalid chunked slate header");
+    return false;
+  }
+  return true;
+}
+
+
+bool handleSlateStartPacket(const String &message)
+{
+  JsonDocument document;
+  JsonObjectConst packet;
+  if (!readSlateTransferDocument(message, "slate_start", document, packet))
+  {
+    return false;
+  }
+
+  const char *league;
+  const char *slateId;
+  JsonVariantConst totalGames = packet["totalGames"];
+  JsonVariantConst totalChunks = packet["totalChunks"];
+  if (!readRequiredText(packet, "league", 12, league) ||
+      !readRequiredText(packet, "slateId", 48, slateId) ||
+      !totalGames.is<int>() || !totalChunks.is<int>() ||
+      totalGames.as<int>() < 1 ||
+      totalGames.as<int>() > GameManager::MAX_RECEIVED_SLATE_GAMES ||
+      totalChunks.as<int>() < 1 ||
+      totalChunks.as<int>() > totalGames.as<int>())
+  {
+    rejectGamePacket("invalid slate_start fields");
+    return false;
+  }
+
+  clearStagingSlate(slateTransferActive ? "replaced by new slate_start" : nullptr);
+  strlcpy(stagingLeague, league, sizeof(stagingLeague));
+  strlcpy(stagingSlateId, slateId, sizeof(stagingSlateId));
+  stagingExpectedGames = static_cast<uint8_t>(totalGames.as<int>());
+  stagingExpectedChunks = static_cast<uint8_t>(totalChunks.as<int>());
+  stagingLastActivityTime = millis();
+  slateTransferActive = true;
+  USBSerial.print("BLE slate transfer started: id=");
+  USBSerial.print(stagingSlateId);
+  USBSerial.print(", games=");
+  USBSerial.print(stagingExpectedGames);
+  USBSerial.print(", chunks=");
+  USBSerial.println(stagingExpectedChunks);
+  return true;
+}
+
+
+bool handleSlateChunkPacket(const String &message)
+{
+  JsonDocument document;
+  JsonObjectConst packet;
+  if (!readSlateTransferDocument(message, "slate_chunk", document, packet))
+  {
+    return false;
+  }
+  if (!slateTransferActive)
+  {
+    rejectGamePacket("slate_chunk without slate_start");
+    return false;
+  }
+
+  const char *slateId;
+  JsonVariantConst chunkIndex = packet["chunkIndex"];
+  if (!readRequiredText(packet, "slateId", 48, slateId) ||
+      strcmp(slateId, stagingSlateId) != 0)
+  {
+    rejectGamePacket("wrong slateId");
+    return false;
+  }
+  if (!chunkIndex.is<int>() || chunkIndex.as<int>() < 0 ||
+      chunkIndex.as<int>() >= stagingExpectedChunks)
+  {
+    rejectGamePacket("chunk index out of range");
+    return false;
+  }
+  if (chunkIndex.as<int>() < stagingNextChunkIndex)
+  {
+    rejectGamePacket("duplicate chunk");
+    return false;
+  }
+  if (chunkIndex.as<int>() != stagingNextChunkIndex)
+  {
+    rejectGamePacket("out-of-order chunk");
+    return false;
+  }
+  if (!packet["games"].is<JsonArrayConst>())
+  {
+    rejectGamePacket("invalid chunk games");
+    return false;
+  }
+
+  JsonArrayConst games = packet["games"].as<JsonArrayConst>();
+  if (games.size() == 0 ||
+      stagingReceivedGames + games.size() > stagingExpectedGames)
+  {
+    rejectGamePacket("invalid chunk game count");
+    return false;
+  }
+
+  GameData validatedGames[GameManager::MAX_RECEIVED_SLATE_GAMES] = {};
+  uint8_t validatedCount = 0;
+  for (JsonVariantConst item : games)
+  {
+    if (!item.is<JsonObjectConst>() ||
+        !readValidatedGame(
+          item.as<JsonObjectConst>(),
+          validatedGames[validatedCount]
+        ))
+    {
+      rejectGamePacket("malformed chunk game");
+      return false;
+    }
+    validatedCount++;
+  }
+
+  for (uint8_t index = 0; index < validatedCount; index++)
+  {
+    stagingGames[stagingReceivedGames + index] = validatedGames[index];
+  }
+  stagingReceivedGames += validatedCount;
+  stagingNextChunkIndex++;
+  stagingLastActivityTime = millis();
+  USBSerial.print("BLE slate chunk accepted: index=");
+  USBSerial.print(chunkIndex.as<int>());
+  USBSerial.print(", bytes=");
+  USBSerial.println(message.length());
+  return true;
+}
+
+
+bool handleSlateEndPacket(const String &message)
+{
+  JsonDocument document;
+  JsonObjectConst packet;
+  if (!readSlateTransferDocument(message, "slate_end", document, packet))
+  {
+    return false;
+  }
+  if (!slateTransferActive)
+  {
+    rejectGamePacket("slate_end without slate_start");
+    return false;
+  }
+
+  const char *slateId;
+  if (!readRequiredText(packet, "slateId", 48, slateId) ||
+      strcmp(slateId, stagingSlateId) != 0)
+  {
+    rejectGamePacket("wrong slateId");
+    return false;
+  }
+  if (stagingNextChunkIndex != stagingExpectedChunks ||
+      stagingReceivedGames != stagingExpectedGames)
+  {
+    rejectGamePacket("incomplete slate transfer");
+    return false;
+  }
+
+  gameManager.setReceivedSlate(
+    stagingLeague,
+    stagingGames,
+    stagingReceivedGames
+  );
+  USBSerial.print("BLE slate transfer complete: id=");
+  USBSerial.println(stagingSlateId);
+  clearStagingSlate(nullptr);
+  drawDashboard();
+  return true;
+}
+
+
 /**
- * Handle legacy BLE commands or a version 1 game packet.
+ * Handle legacy BLE commands or a version 1 game/slate packet.
  */
 void handleBluetoothCommand(const String &message)
 {
@@ -494,6 +865,38 @@ void handleBluetoothCommand(const String &message)
     return;
   }
 
+  JsonDocument document;
+  DeserializationError error = deserializeJson(
+    document,
+    message.c_str(),
+    message.length()
+  );
+  if (!error && document.is<JsonObject>() &&
+      document["type"].is<const char *>())
+  {
+    const char *type = document["type"].as<const char *>();
+    if (strcmp(type, "slate") == 0)
+    {
+      handleSlatePacket(message);
+      return;
+    }
+    if (strcmp(type, "slate_start") == 0)
+    {
+      handleSlateStartPacket(message);
+      return;
+    }
+    if (strcmp(type, "slate_chunk") == 0)
+    {
+      handleSlateChunkPacket(message);
+      return;
+    }
+    if (strcmp(type, "slate_end") == 0)
+    {
+      handleSlateEndPacket(message);
+      return;
+    }
+  }
+
   handleGamePacket(message);
 }
 
@@ -504,6 +907,7 @@ void handleBluetoothCommand(const String &message)
 void handleBluetoothMessages()
 {
   bluetoothManager.updateBluetooth();
+  expireStagingSlateIfNeeded();
 
   bool bluetoothConnected = bluetoothManager.isBluetoothConnected();
 

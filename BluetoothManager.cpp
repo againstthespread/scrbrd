@@ -16,8 +16,11 @@ namespace
 
   bool clientConnected = false;
   bool shouldAdvertise = false;
-  bool messageAvailable = false;
-  String receivedMessage = "";
+  const uint8_t RECEIVED_MESSAGE_QUEUE_CAPACITY = 24;
+  String receivedMessages[RECEIVED_MESSAGE_QUEUE_CAPACITY];
+  volatile uint8_t receivedMessageHead = 0;
+  volatile uint8_t receivedMessageTail = 0;
+  volatile uint8_t receivedMessageCount = 0;
 
   class SportsHubServerCallbacks : public BLEServerCallbacks
   {
@@ -42,8 +45,17 @@ namespace
     {
       auto value = characteristic->getValue();
 
-      receivedMessage = String(value.c_str(), value.length());
-      messageAvailable = true;
+      if (receivedMessageCount >= RECEIVED_MESSAGE_QUEUE_CAPACITY)
+      {
+        USBSerial.println("BLE received-message queue full; packet rejected.");
+        return;
+      }
+
+      String receivedMessage = String(value.c_str(), value.length());
+      receivedMessages[receivedMessageTail] = receivedMessage;
+      receivedMessageTail =
+        (receivedMessageTail + 1) % RECEIVED_MESSAGE_QUEUE_CAPACITY;
+      receivedMessageCount++;
 
       USBSerial.print("BLE received message: ");
       USBSerial.println(receivedMessage);
@@ -169,12 +181,21 @@ const char *BluetoothManager::getBluetoothStatusText()
 
 bool BluetoothManager::hasReceivedMessage()
 {
-  return messageAvailable;
+  return receivedMessageCount > 0;
 }
 
 
 String BluetoothManager::getReceivedMessage()
 {
-  messageAvailable = false;
+  if (receivedMessageCount == 0)
+  {
+    return "";
+  }
+
+  String receivedMessage = receivedMessages[receivedMessageHead];
+  receivedMessages[receivedMessageHead] = "";
+  receivedMessageHead =
+    (receivedMessageHead + 1) % RECEIVED_MESSAGE_QUEUE_CAPACITY;
+  receivedMessageCount--;
   return receivedMessage;
 }

@@ -12,12 +12,13 @@
 
 struct GameData
 {
-  const char *status;
-  const char *awayTeam;
-  const char *homeTeam;
+  char status[9];
+  char awayTeam[33];
+  char homeTeam[33];
   uint8_t awayScore;
   uint8_t homeScore;
-  const char *clock;
+  char clock[25];
+  char eventId[49];
 };
 
 struct LeagueData

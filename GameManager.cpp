@@ -19,9 +19,9 @@ const LeagueData &GameManager::getCurrentLeague()
  */
 const GameData &GameManager::getCurrentGame()
 {
-  if (receivedGameActive)
+  if (receivedSlateActive)
   {
-    return receivedGame;
+    return receivedGames[receivedGameIndex];
   }
 
   const LeagueData &league = getCurrentLeague();
@@ -48,20 +48,39 @@ void GameManager::setReceivedGame(
   const char *clock
 )
 {
-  strlcpy(receivedLeague, league, sizeof(receivedLeague));
-  strlcpy(receivedAway, away, sizeof(receivedAway));
-  strlcpy(receivedHome, home, sizeof(receivedHome));
-  strlcpy(receivedStatus, status, sizeof(receivedStatus));
-  strlcpy(receivedClock, clock, sizeof(receivedClock));
-  receivedGame.awayScore = awayScore;
-  receivedGame.homeScore = homeScore;
-  receivedGameActive = true;
+  GameData game = {};
+  strlcpy(game.awayTeam, away, sizeof(game.awayTeam));
+  strlcpy(game.homeTeam, home, sizeof(game.homeTeam));
+  strlcpy(game.status, status, sizeof(game.status));
+  strlcpy(game.clock, clock, sizeof(game.clock));
+  game.awayScore = awayScore;
+  game.homeScore = homeScore;
+  setReceivedSlate(league, &game, 1);
 }
 
 
-void GameManager::leaveReceivedGame()
+void GameManager::setReceivedSlate(
+  const char *league,
+  const GameData *games,
+  uint8_t gameCount
+)
 {
-  receivedGameActive = false;
+  strlcpy(receivedLeague, league, sizeof(receivedLeague));
+  for (uint8_t index = 0; index < gameCount; index++)
+  {
+    receivedGames[index] = games[index];
+  }
+  receivedGameCount = gameCount;
+  receivedGameIndex = 0;
+  receivedSlateActive = gameCount > 0;
+}
+
+
+void GameManager::leaveReceivedSlate()
+{
+  receivedSlateActive = false;
+  receivedGameCount = 0;
+  receivedGameIndex = 0;
 }
 
 
@@ -70,7 +89,11 @@ void GameManager::leaveReceivedGame()
  */
 void GameManager::nextGame()
 {
-  leaveReceivedGame();
+  if (receivedSlateActive)
+  {
+    receivedGameIndex = (receivedGameIndex + 1) % receivedGameCount;
+    return;
+  }
   const LeagueData &league = getCurrentLeague();
 
   currentGameIndex++;
@@ -87,7 +110,13 @@ void GameManager::nextGame()
  */
 void GameManager::previousGame()
 {
-  leaveReceivedGame();
+  if (receivedSlateActive)
+  {
+    receivedGameIndex = receivedGameIndex == 0
+      ? receivedGameCount - 1
+      : receivedGameIndex - 1;
+    return;
+  }
   const LeagueData &league = getCurrentLeague();
 
   if (currentGameIndex == 0)
@@ -106,7 +135,7 @@ void GameManager::previousGame()
  */
 void GameManager::nextLeague()
 {
-  leaveReceivedGame();
+  leaveReceivedSlate();
   currentLeagueIndex++;
 
   if (currentLeagueIndex >= MOCK_LEAGUE_COUNT)
@@ -123,7 +152,7 @@ void GameManager::nextLeague()
  */
 void GameManager::previousLeague()
 {
-  leaveReceivedGame();
+  leaveReceivedSlate();
   if (currentLeagueIndex == 0)
   {
     currentLeagueIndex = MOCK_LEAGUE_COUNT - 1;
@@ -139,7 +168,7 @@ void GameManager::previousLeague()
 
 const char *GameManager::getCurrentLeagueName()
 {
-  if (receivedGameActive)
+  if (receivedSlateActive)
   {
     return receivedLeague;
   }
@@ -150,9 +179,9 @@ const char *GameManager::getCurrentLeagueName()
 
 uint8_t GameManager::getCurrentGameNumber()
 {
-  if (receivedGameActive)
+  if (receivedSlateActive)
   {
-    return 1;
+    return receivedGameIndex + 1;
   }
 
   getCurrentGame();
@@ -162,9 +191,9 @@ uint8_t GameManager::getCurrentGameNumber()
 
 uint8_t GameManager::getCurrentGameCount()
 {
-  if (receivedGameActive)
+  if (receivedSlateActive)
   {
-    return 1;
+    return receivedGameCount;
   }
 
   return getCurrentLeague().gameCount;
@@ -173,7 +202,7 @@ uint8_t GameManager::getCurrentGameCount()
 
 uint8_t GameManager::getCurrentLeagueNumber()
 {
-  if (receivedGameActive)
+  if (receivedSlateActive)
   {
     return 1;
   }
@@ -185,7 +214,7 @@ uint8_t GameManager::getCurrentLeagueNumber()
 
 uint8_t GameManager::getLeagueCount()
 {
-  if (receivedGameActive)
+  if (receivedSlateActive)
   {
     return 1;
   }

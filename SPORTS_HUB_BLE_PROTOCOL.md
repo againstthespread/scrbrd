@@ -35,3 +35,39 @@ Canonical statuses:
 UPCOMING
 LIVE
 FINAL
+
+Game slate packet:
+
+{
+  "version": 1,
+  "type": "slate",
+  "league": "MLB",
+  "games": [
+    {"id":"101","away":"NYY","home":"BOS","awayScore":4,"homeScore":3,"status":"LIVE","clock":"BOT 7"},
+    {"id":"102","away":"LAD","home":"SF","awayScore":2,"homeScore":2,"status":"FINAL","clock":"FINAL"}
+  ]
+}
+
+Slate rules:
+- Legacy one-packet slates contain 1 through 4 games from one league.
+- Maximum complete compact UTF-8 packet size: 512 bytes.
+- Game fields use the same limits and canonical statuses as a game packet.
+- Optional stable `id`: non-empty, maximum 48 UTF-8 bytes.
+- The whole slate is validated before replacing the active received slate.
+- Version 1 `game` packets and legacy commands remain unchanged.
+
+Preferred chunked slate transfer:
+
+{"version":1,"type":"slate_start","league":"MLB","slateId":"transfer-123","totalGames":15,"totalChunks":4}
+{"version":1,"type":"slate_chunk","slateId":"transfer-123","chunkIndex":0,"games":[{"id":"101","away":"NYY","home":"BOS","awayScore":4,"homeScore":3,"status":"LIVE","clock":"BOT 7"}]}
+{"version":1,"type":"slate_end","slateId":"transfer-123"}
+
+Chunked-transfer rules:
+- A logical slate contains 1 through 20 games from one league.
+- Every packet remains at or below 512 compact UTF-8 JSON bytes.
+- `slateId` is required, non-empty, and at most 48 UTF-8 bytes.
+- Chunks use zero-based indexes and arrive once each in ascending order.
+- Chunk games follow the same validation rules and optional event `id` metadata as legacy slate games.
+- Only a matching `slate_end` with all declared chunks and games atomically replaces the active slate.
+- Invalid or incomplete transfers leave the active slate unchanged.
+- In-progress staging expires after 30 seconds; a new valid `slate_start` resets staging.
