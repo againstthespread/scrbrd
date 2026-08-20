@@ -71,3 +71,27 @@ Chunked-transfer rules:
 - Only a matching `slate_end` with all declared chunks and games atomically replaces the active slate.
 - Invalid or incomplete transfers leave the active slate unchanged.
 - In-progress staging expires after 30 seconds; a new valid `slate_start` resets staging.
+
+Received-league storage and navigation:
+- The `league` in `slate_start` is the stored slate identity; `slateId` identifies only its transfer.
+- A successful `slate_end` replaces only the matching league or appends it if it is new.
+- Up to 8 received leagues are stored independently, with up to 20 games each.
+- Failed or incomplete transfers never alter any stored league.
+- Received leagues retain insertion order.
+- BOOT single-click and `NEXT_GAME` cycle games in the active received league.
+- BOOT double-click and `NEXT_LEAGUE` cycle received leagues, wrap, and reset the game index to 0.
+- Mock leagues remain the fallback only when there are no received leagues.
+
+PGA golf leaderboard transfer:
+
+{"version":1,"type":"golf_start","league":"PGA","transferId":"golf-123","tournamentId":"9001","tournamentName":"BMW Championship","totalGolfers":20,"totalChunks":5}
+{"version":1,"type":"golf_chunk","transferId":"golf-123","chunkIndex":0,"golfers":[{"id":"400001","name":"Scottie Scheffler","rank":"1","score":"-8","detail":"F"}]}
+{"version":1,"type":"golf_end","transferId":"golf-123"}
+
+Golf rules:
+- PGA is stored as dedicated leaderboard content, not team-sport games.
+- Transfers contain 1 through 50 golfers; each packet remains at or below 512 UTF-8 bytes.
+- Tournament and player identifiers are metadata owned by firmware buffers.
+- Golfer rows contain `id`, `name`, official `rank`, normalized `score`, and optional `detail`.
+- Only a complete matching `golf_end` atomically replaces PGA. Team leagues are unaffected.
+- Single-click and `NEXT_GAME` advance five golfers per page and wrap. League navigation resets the page to 1.

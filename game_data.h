@@ -21,6 +21,21 @@ struct GameData
   char eventId[49];
 };
 
+struct GolfLeaderboardRow
+{
+  char playerId[49];
+  char name[33];
+  char rank[9];
+  char score[9];
+  char detail[17];
+};
+
+enum ReceivedLeagueContentType : uint8_t
+{
+  RECEIVED_TEAM_SPORT = 0,
+  RECEIVED_GOLF = 1,
+};
+
 struct LeagueData
 {
   const char *name;

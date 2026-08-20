@@ -78,6 +78,17 @@ uint8_t stagingReceivedGames = 0;
 uint8_t stagingNextChunkIndex = 0;
 unsigned long stagingLastActivityTime = 0;
 
+bool golfTransferActive = false;
+char stagingGolfTransferId[49] = "";
+char stagingGolfTournamentId[49] = "";
+char stagingGolfTournamentName[49] = "";
+GolfLeaderboardRow stagingGolfers[GameManager::MAX_RECEIVED_GOLFERS] = {};
+uint8_t stagingExpectedGolfers = 0;
+uint8_t stagingExpectedGolfChunks = 0;
+uint8_t stagingReceivedGolfers = 0;
+uint8_t stagingNextGolfChunkIndex = 0;
+unsigned long stagingGolfLastActivityTime = 0;
+
 
 /**
  * Prepare the LCD and backlight.
@@ -190,30 +201,55 @@ void drawScore(uint8_t score, uint16_t color, int16_t y)
 
 
 /**
- * Draw the application's top title area.
+ * Draw a compact Bluetooth status glyph using only display primitives.
+ */
+void drawBluetoothIcon(int16_t x, int16_t y)
+{
+  uint16_t color = bluetoothManager.isBluetoothConnected()
+    ? CYAN
+    : COLOR_GRAY;
+
+  gfx->drawLine(x + 5, y, x + 5, y + 18, color);
+  gfx->drawLine(x + 5, y, x + 11, y + 6, color);
+  gfx->drawLine(x + 11, y + 6, x + 1, y + 13, color);
+  gfx->drawLine(x + 1, y + 5, x + 11, y + 12, color);
+  gfx->drawLine(x + 11, y + 12, x + 5, y + 18, color);
+
+  if (bluetoothManager.isBluetoothConnected())
+  {
+    gfx->fillTriangle(x + 6, y + 2, x + 10, y + 6, x + 6, y + 9, color);
+    gfx->fillTriangle(x + 6, y + 9, x + 10, y + 12, x + 6, y + 16, color);
+  }
+}
+
+
+/**
+ * Draw the application's compact top title area.
  */
 void drawHeader()
 {
-  gfx->fillRoundRect(10, 8, 220, 58, 8, COLOR_DARK_BLUE);
-  gfx->drawRoundRect(10, 8, 220, 58, 8, COLOR_LIGHT_BLUE);
+  gfx->fillRoundRect(10, 8, 220, 42, 8, COLOR_DARK_BLUE);
+  gfx->drawRoundRect(10, 8, 220, 42, 8, COLOR_LIGHT_BLUE);
 
   gfx->setTextColor(COLOR_GRAY);
   gfx->setTextSize(1);
-  gfx->setCursor(22, 16);
+  gfx->setCursor(18, 14);
   gfx->println("PETER'S SPORTS HUB");
 
   gfx->setTextColor(CYAN);
-  gfx->setTextSize(3);
-  gfx->setCursor(22, 34);
+  gfx->setTextSize(2);
+  gfx->setCursor(18, 29);
   gfx->println(gameManager.getCurrentLeagueName());
 
   gfx->setTextColor(WHITE);
   gfx->setTextSize(1);
-  gfx->setCursor(178, 42);
+  gfx->setCursor(156, 33);
   gfx->print("L ");
   gfx->print(gameManager.getCurrentLeagueNumber());
   gfx->print("/");
   gfx->println(gameManager.getLeagueCount());
+
+  drawBluetoothIcon(208, 18);
 }
 
 
@@ -223,63 +259,93 @@ void drawHeader()
 void drawScoreboard(const GameData &game)
 {
   // Scoreboard card
-  gfx->fillRoundRect(10, 78, 220, 130, 10, COLOR_DARK_GRAY);
-  gfx->drawRoundRect(10, 78, 220, 130, 10, COLOR_LIGHT_BLUE);
+  gfx->fillRoundRect(10, 62, 220, 146, 10, COLOR_DARK_GRAY);
+  gfx->drawRoundRect(10, 62, 220, 146, 10, COLOR_LIGHT_BLUE);
 
   // Game position
   gfx->setTextColor(COLOR_GRAY);
   gfx->setTextSize(1);
-  gfx->setCursor(22, 91);
+  gfx->setCursor(22, 75);
   gfx->print("Game ");
   gfx->print(gameManager.getCurrentGameNumber());
   gfx->print(" of ");
   gfx->println(gameManager.getCurrentGameCount());
 
   // Status badge
-  gfx->fillRoundRect(157, 87, 54, 18, 5, COLOR_STATUS_BG);
+  gfx->fillRoundRect(157, 71, 54, 18, 5, COLOR_STATUS_BG);
   gfx->setTextColor(BLACK);
   gfx->setTextSize(1);
-  gfx->setCursor(167, 93);
+  gfx->setCursor(167, 77);
   gfx->println(game.status);
 
   // Divider
-  gfx->drawFastHLine(20, 113, 200, COLOR_GRAY);
+  gfx->drawFastHLine(20, 97, 200, COLOR_GRAY);
 
   // Teams
-  drawTeamName(game.awayTeam, 22, 128);
-  drawTeamName(game.homeTeam, 22, 160);
+  drawTeamName(game.awayTeam, 22, 112);
+  drawTeamName(game.homeTeam, 22, 144);
 
   // Scores
-  drawScore(game.awayScore, GREEN, 123);
-  drawScore(game.homeScore, WHITE, 155);
+  drawScore(game.awayScore, GREEN, 107);
+  drawScore(game.homeScore, WHITE, 139);
 
   // Game clock
   gfx->setTextColor(YELLOW);
   gfx->setTextSize(1);
-  gfx->setCursor(94, 192);
+  gfx->setCursor(94, 176);
   gfx->println(game.clock);
 }
 
 
-/**
- * Draw the bottom status area.
- */
-void drawStatusBar()
+void drawGolfLeaderboard()
 {
-  gfx->fillRoundRect(10, 220, 220, 48, 8, COLOR_DARK_BLUE);
+  gfx->fillRoundRect(10, 58, 220, 210, 10, COLOR_DARK_GRAY);
+  gfx->drawRoundRect(10, 58, 220, 210, 10, COLOR_LIGHT_BLUE);
 
-  gfx->setTextColor(GREEN);
+  gfx->setTextColor(CYAN);
   gfx->setTextSize(1);
-  gfx->setCursor(22, 231);
-  gfx->println("SYSTEM ONLINE");
+  gfx->setCursor(18, 68);
+  String tournament = gameManager.getCurrentTournamentName();
+  if (tournament.length() > 28)
+  {
+    tournament = tournament.substring(0, 27) + "~";
+  }
+  gfx->println(tournament);
+  gfx->drawFastHLine(18, 82, 204, COLOR_GRAY);
 
-  gfx->setTextColor(WHITE);
-  gfx->setCursor(22, 249);
-  gfx->println(bluetoothManager.getBluetoothStatusText());
+  const GolfLeaderboardRow *rows = gameManager.getCurrentGolfPageRows();
+  uint8_t rowCount = gameManager.getCurrentGolfPageRowCount();
+  for (uint8_t index = 0; index < rowCount; index++)
+  {
+    int16_t y = 91 + index * 31;
+    gfx->setTextColor(WHITE);
+    gfx->setCursor(18, y);
+    gfx->print(rows[index].rank);
+    gfx->setCursor(43, y);
+    String name = rows[index].name;
+    if (name.length() > 18)
+    {
+      name = name.substring(0, 17) + "~";
+    }
+    gfx->print(name);
+    gfx->setTextColor(YELLOW);
+    gfx->setCursor(190, y);
+    gfx->println(rows[index].score);
+
+    if (rows[index].detail[0] != '\0')
+    {
+      gfx->setTextColor(COLOR_GRAY);
+      gfx->setCursor(43, y + 11);
+      gfx->println(rows[index].detail);
+    }
+  }
 
   gfx->setTextColor(COLOR_GRAY);
-  gfx->setCursor(192, 249);
-  gfx->println("0.1");
+  gfx->setCursor(164, 251);
+  gfx->print("Page ");
+  gfx->print(gameManager.getCurrentGolfPageNumber());
+  gfx->print("/");
+  gfx->println(gameManager.getCurrentGolfPageCount());
 }
 
 
@@ -288,13 +354,17 @@ void drawStatusBar()
  */
 void drawDashboard()
 {
-  const GameData &game = gameManager.getCurrentGame();
-
   gfx->fillScreen(BLACK);
 
   drawHeader();
-  drawScoreboard(game);
-  drawStatusBar();
+  if (gameManager.isCurrentLeagueGolf())
+  {
+    drawGolfLeaderboard();
+  }
+  else
+  {
+    drawScoreboard(gameManager.getCurrentGame());
+  }
 }
 
 
@@ -527,7 +597,7 @@ bool handleGamePacket(const String &message)
     return false;
   }
 
-  gameManager.setReceivedGame(
+  if (!gameManager.setReceivedGame(
     league,
     away,
     home,
@@ -535,7 +605,11 @@ bool handleGamePacket(const String &message)
     static_cast<uint8_t>(homeScore.as<int>()),
     status,
     clock
-  );
+  ))
+  {
+    rejectGamePacket("received league capacity reached");
+    return false;
+  }
   drawDashboard();
   USBSerial.println("BLE game accepted.");
   return true;
@@ -607,7 +681,11 @@ bool handleSlatePacket(const String &message)
     index++;
   }
 
-  gameManager.setReceivedSlate(league, validatedGames, index);
+  if (!gameManager.setReceivedSlate(league, validatedGames, index))
+  {
+    rejectGamePacket("received league capacity reached");
+    return false;
+  }
   drawDashboard();
   USBSerial.print("BLE slate accepted with ");
   USBSerial.print(index);
@@ -831,14 +909,226 @@ bool handleSlateEndPacket(const String &message)
     return false;
   }
 
-  gameManager.setReceivedSlate(
+  if (!gameManager.setReceivedSlate(
     stagingLeague,
     stagingGames,
     stagingReceivedGames
-  );
+  ))
+  {
+    rejectGamePacket("received league capacity reached");
+    clearStagingSlate("league capacity reached");
+    return false;
+  }
   USBSerial.print("BLE slate transfer complete: id=");
   USBSerial.println(stagingSlateId);
   clearStagingSlate(nullptr);
+  drawDashboard();
+  return true;
+}
+
+
+void clearGolfStaging(const char *reason)
+{
+  if (reason != nullptr)
+  {
+    USBSerial.print("BLE golf transfer discarded: ");
+    USBSerial.println(reason);
+  }
+  golfTransferActive = false;
+  stagingGolfTransferId[0] = '\0';
+  stagingExpectedGolfers = 0;
+  stagingExpectedGolfChunks = 0;
+  stagingReceivedGolfers = 0;
+  stagingNextGolfChunkIndex = 0;
+}
+
+
+void expireGolfStagingIfNeeded()
+{
+  if (golfTransferActive &&
+      millis() - stagingGolfLastActivityTime >= SLATE_TRANSFER_TIMEOUT_MS)
+  {
+    clearGolfStaging("30-second timeout");
+  }
+}
+
+
+bool readGolfRow(JsonObjectConst packet, GolfLeaderboardRow &row)
+{
+  const char *id;
+  const char *name;
+  const char *rank;
+  const char *score;
+  if (!readRequiredText(packet, "id", 48, id) ||
+      !readRequiredText(packet, "name", 32, name) ||
+      !readRequiredText(packet, "rank", 8, rank) ||
+      !readRequiredText(packet, "score", 8, score))
+  {
+    return false;
+  }
+  strlcpy(row.playerId, id, sizeof(row.playerId));
+  strlcpy(row.name, name, sizeof(row.name));
+  strlcpy(row.rank, rank, sizeof(row.rank));
+  strlcpy(row.score, score, sizeof(row.score));
+  JsonVariantConst detail = packet["detail"];
+  if (!detail.isNull())
+  {
+    if (!detail.is<const char *>() || strlen(detail.as<const char *>()) > 16)
+    {
+      rejectGamePacket("invalid golf detail");
+      return false;
+    }
+    strlcpy(row.detail, detail.as<const char *>(), sizeof(row.detail));
+  }
+  return true;
+}
+
+
+bool handleGolfStartPacket(const String &message)
+{
+  JsonDocument document;
+  JsonObjectConst packet;
+  if (!readSlateTransferDocument(message, "golf_start", document, packet))
+  {
+    return false;
+  }
+  const char *league;
+  const char *transferId;
+  const char *tournamentId;
+  const char *tournamentName;
+  JsonVariantConst totalGolfers = packet["totalGolfers"];
+  JsonVariantConst totalChunks = packet["totalChunks"];
+  if (!readRequiredText(packet, "league", 12, league) ||
+      strcmp(league, "PGA") != 0 ||
+      !readRequiredText(packet, "transferId", 48, transferId) ||
+      !readRequiredText(packet, "tournamentId", 48, tournamentId) ||
+      !readRequiredText(packet, "tournamentName", 48, tournamentName) ||
+      !totalGolfers.is<int>() || !totalChunks.is<int>() ||
+      totalGolfers.as<int>() < 1 ||
+      totalGolfers.as<int>() > GameManager::MAX_RECEIVED_GOLFERS ||
+      totalChunks.as<int>() < 1 ||
+      totalChunks.as<int>() > totalGolfers.as<int>())
+  {
+    rejectGamePacket("invalid golf_start fields");
+    return false;
+  }
+  clearGolfStaging(golfTransferActive ? "replaced by new golf_start" : nullptr);
+  strlcpy(stagingGolfTransferId, transferId, sizeof(stagingGolfTransferId));
+  strlcpy(stagingGolfTournamentId, tournamentId, sizeof(stagingGolfTournamentId));
+  strlcpy(
+    stagingGolfTournamentName,
+    tournamentName,
+    sizeof(stagingGolfTournamentName)
+  );
+  stagingExpectedGolfers = totalGolfers.as<int>();
+  stagingExpectedGolfChunks = totalChunks.as<int>();
+  stagingGolfLastActivityTime = millis();
+  golfTransferActive = true;
+  USBSerial.print("BLE golf transfer started: tournament=");
+  USBSerial.println(stagingGolfTournamentName);
+  return true;
+}
+
+
+bool handleGolfChunkPacket(const String &message)
+{
+  JsonDocument document;
+  JsonObjectConst packet;
+  if (!readSlateTransferDocument(message, "golf_chunk", document, packet) ||
+      !golfTransferActive)
+  {
+    rejectGamePacket("golf_chunk without golf_start");
+    return false;
+  }
+  const char *transferId;
+  JsonVariantConst chunkIndex = packet["chunkIndex"];
+  if (!readRequiredText(packet, "transferId", 48, transferId) ||
+      strcmp(transferId, stagingGolfTransferId) != 0)
+  {
+    rejectGamePacket("wrong golf transferId");
+    return false;
+  }
+  if (!chunkIndex.is<int>() || chunkIndex.as<int>() < 0 ||
+      chunkIndex.as<int>() >= stagingExpectedGolfChunks ||
+      chunkIndex.as<int>() != stagingNextGolfChunkIndex)
+  {
+    rejectGamePacket(
+      chunkIndex.is<int>() && chunkIndex.as<int>() < stagingNextGolfChunkIndex
+        ? "duplicate golf chunk"
+        : "invalid golf chunk index"
+    );
+    return false;
+  }
+  if (!packet["golfers"].is<JsonArrayConst>())
+  {
+    rejectGamePacket("invalid golfers");
+    return false;
+  }
+  JsonArrayConst golfers = packet["golfers"].as<JsonArrayConst>();
+  if (golfers.size() == 0 ||
+      stagingReceivedGolfers + golfers.size() > stagingExpectedGolfers)
+  {
+    rejectGamePacket("invalid golfer count");
+    return false;
+  }
+  GolfLeaderboardRow validated[GameManager::MAX_RECEIVED_GOLFERS] = {};
+  uint8_t count = 0;
+  for (JsonVariantConst item : golfers)
+  {
+    if (!item.is<JsonObjectConst>() ||
+        !readGolfRow(item.as<JsonObjectConst>(), validated[count]))
+    {
+      rejectGamePacket("malformed golfer");
+      return false;
+    }
+    count++;
+  }
+  for (uint8_t index = 0; index < count; index++)
+  {
+    stagingGolfers[stagingReceivedGolfers + index] = validated[index];
+  }
+  stagingReceivedGolfers += count;
+  stagingNextGolfChunkIndex++;
+  stagingGolfLastActivityTime = millis();
+  USBSerial.print("BLE golf chunk accepted: index=");
+  USBSerial.println(chunkIndex.as<int>());
+  return true;
+}
+
+
+bool handleGolfEndPacket(const String &message)
+{
+  JsonDocument document;
+  JsonObjectConst packet;
+  if (!readSlateTransferDocument(message, "golf_end", document, packet) ||
+      !golfTransferActive)
+  {
+    rejectGamePacket("golf_end without golf_start");
+    return false;
+  }
+  const char *transferId;
+  if (!readRequiredText(packet, "transferId", 48, transferId) ||
+      strcmp(transferId, stagingGolfTransferId) != 0 ||
+      stagingNextGolfChunkIndex != stagingExpectedGolfChunks ||
+      stagingReceivedGolfers != stagingExpectedGolfers)
+  {
+    rejectGamePacket("incomplete/wrong golf transfer");
+    return false;
+  }
+  if (!gameManager.setReceivedGolfLeaderboard(
+    "PGA",
+    stagingGolfTournamentId,
+    stagingGolfTournamentName,
+    stagingGolfers,
+    stagingReceivedGolfers
+  ))
+  {
+    rejectGamePacket("received league capacity reached");
+    clearGolfStaging("league capacity reached");
+    return false;
+  }
+  USBSerial.println("BLE golf transfer complete.");
+  clearGolfStaging(nullptr);
   drawDashboard();
   return true;
 }
@@ -895,6 +1185,21 @@ void handleBluetoothCommand(const String &message)
       handleSlateEndPacket(message);
       return;
     }
+    if (strcmp(type, "golf_start") == 0)
+    {
+      handleGolfStartPacket(message);
+      return;
+    }
+    if (strcmp(type, "golf_chunk") == 0)
+    {
+      handleGolfChunkPacket(message);
+      return;
+    }
+    if (strcmp(type, "golf_end") == 0)
+    {
+      handleGolfEndPacket(message);
+      return;
+    }
   }
 
   handleGamePacket(message);
@@ -908,6 +1213,7 @@ void handleBluetoothMessages()
 {
   bluetoothManager.updateBluetooth();
   expireStagingSlateIfNeeded();
+  expireGolfStagingIfNeeded();
 
   bool bluetoothConnected = bluetoothManager.isBluetoothConnected();
 

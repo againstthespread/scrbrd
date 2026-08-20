@@ -19,9 +19,10 @@ const LeagueData &GameManager::getCurrentLeague()
  */
 const GameData &GameManager::getCurrentGame()
 {
-  if (receivedSlateActive)
+  if (receivedLeagueCount > 0)
   {
-    return receivedGames[receivedGameIndex];
+    ReceivedLeague &league = receivedLeagues[currentReceivedLeagueIndex];
+    return league.games[currentReceivedGameIndex];
   }
 
   const LeagueData &league = getCurrentLeague();
@@ -38,7 +39,7 @@ const GameData &GameManager::getCurrentGame()
 /**
  * Store one validated BLE game packet in owned memory.
  */
-void GameManager::setReceivedGame(
+bool GameManager::setReceivedGame(
   const char *league,
   const char *away,
   const char *home,
@@ -55,32 +56,113 @@ void GameManager::setReceivedGame(
   strlcpy(game.clock, clock, sizeof(game.clock));
   game.awayScore = awayScore;
   game.homeScore = homeScore;
-  setReceivedSlate(league, &game, 1);
+  return setReceivedSlate(league, &game, 1);
 }
 
 
-void GameManager::setReceivedSlate(
+int8_t GameManager::findReceivedLeague(const char *league)
+{
+  for (uint8_t index = 0; index < receivedLeagueCount; index++)
+  {
+    if (strcmp(receivedLeagues[index].name, league) == 0)
+    {
+      return static_cast<int8_t>(index);
+    }
+  }
+  return -1;
+}
+
+
+bool GameManager::setReceivedSlate(
   const char *league,
   const GameData *games,
   uint8_t gameCount
 )
 {
-  strlcpy(receivedLeague, league, sizeof(receivedLeague));
+  if (gameCount == 0 || gameCount > MAX_RECEIVED_SLATE_GAMES)
+  {
+    return false;
+  }
+
+  int8_t existingIndex = findReceivedLeague(league);
+  if (existingIndex < 0 && receivedLeagueCount >= MAX_RECEIVED_LEAGUES)
+  {
+    return false;
+  }
+
+  uint8_t targetIndex = existingIndex >= 0
+    ? static_cast<uint8_t>(existingIndex)
+    : receivedLeagueCount;
+  ReceivedLeague &target = receivedLeagues[targetIndex];
+  strlcpy(target.name, league, sizeof(target.name));
   for (uint8_t index = 0; index < gameCount; index++)
   {
-    receivedGames[index] = games[index];
+    target.games[index] = games[index];
   }
-  receivedGameCount = gameCount;
-  receivedGameIndex = 0;
-  receivedSlateActive = gameCount > 0;
+  target.gameCount = gameCount;
+  target.contentType = RECEIVED_TEAM_SPORT;
+
+  if (existingIndex < 0)
+  {
+    receivedLeagueCount++;
+    if (receivedLeagueCount == 1)
+    {
+      currentReceivedLeagueIndex = 0;
+      currentReceivedGameIndex = 0;
+    }
+  }
+  else if (targetIndex == currentReceivedLeagueIndex)
+  {
+    currentReceivedGameIndex = 0;
+  }
+  return true;
 }
 
 
-void GameManager::leaveReceivedSlate()
+bool GameManager::setReceivedGolfLeaderboard(
+  const char *league,
+  const char *tournamentId,
+  const char *tournamentName,
+  const GolfLeaderboardRow *golfers,
+  uint8_t golferCount
+)
 {
-  receivedSlateActive = false;
-  receivedGameCount = 0;
-  receivedGameIndex = 0;
+  if (golferCount == 0 || golferCount > MAX_RECEIVED_GOLFERS)
+  {
+    return false;
+  }
+  int8_t existingIndex = findReceivedLeague(league);
+  if (existingIndex < 0 && receivedLeagueCount >= MAX_RECEIVED_LEAGUES)
+  {
+    return false;
+  }
+  uint8_t targetIndex = existingIndex >= 0
+    ? static_cast<uint8_t>(existingIndex)
+    : receivedLeagueCount;
+  ReceivedLeague &target = receivedLeagues[targetIndex];
+  strlcpy(target.name, league, sizeof(target.name));
+  strlcpy(target.tournamentId, tournamentId, sizeof(target.tournamentId));
+  strlcpy(target.tournamentName, tournamentName, sizeof(target.tournamentName));
+  for (uint8_t index = 0; index < golferCount; index++)
+  {
+    target.golfers[index] = golfers[index];
+  }
+  target.golferCount = golferCount;
+  target.contentType = RECEIVED_GOLF;
+  if (existingIndex < 0)
+  {
+    receivedLeagueCount++;
+    if (receivedLeagueCount == 1)
+    {
+      currentReceivedLeagueIndex = 0;
+      currentReceivedGameIndex = 0;
+    }
+  }
+  else if (targetIndex == currentReceivedLeagueIndex)
+  {
+    currentReceivedGameIndex = 0;
+  }
+  return true;
 }
 
 
@@ -89,9 +171,18 @@ void GameManager::leaveReceivedSlate()
  */
 void GameManager::nextGame()
 {
-  if (receivedSlateActive)
+  if (receivedLeagueCount > 0)
   {
-    receivedGameIndex = (receivedGameIndex + 1) % receivedGameCount;
+    const ReceivedLeague &league = receivedLeagues[currentReceivedLeagueIndex];
+    if (league.contentType == RECEIVED_GOLF)
+    {
+      uint8_t pageCount =
+        (league.golferCount + GOLFERS_PER_PAGE - 1) / GOLFERS_PER_PAGE;
+      currentReceivedGameIndex = (currentReceivedGameIndex + 1) % pageCount;
+      return;
+    }
+    currentReceivedGameIndex =
+      (currentReceivedGameIndex + 1) % league.gameCount;
     return;
   }
   const LeagueData &league = getCurrentLeague();
@@ -110,11 +201,12 @@ void GameManager::nextGame()
  */
 void GameManager::previousGame()
 {
-  if (receivedSlateActive)
+  if (receivedLeagueCount > 0)
   {
-    receivedGameIndex = receivedGameIndex == 0
-      ? receivedGameCount - 1
-      : receivedGameIndex - 1;
+    const ReceivedLeague &league = receivedLeagues[currentReceivedLeagueIndex];
+    currentReceivedGameIndex = currentReceivedGameIndex == 0
+      ? league.gameCount - 1
+      : currentReceivedGameIndex - 1;
     return;
   }
   const LeagueData &league = getCurrentLeague();
@@ -135,7 +227,13 @@ void GameManager::previousGame()
  */
 void GameManager::nextLeague()
 {
-  leaveReceivedSlate();
+  if (receivedLeagueCount > 0)
+  {
+    currentReceivedLeagueIndex =
+      (currentReceivedLeagueIndex + 1) % receivedLeagueCount;
+    currentReceivedGameIndex = 0;
+    return;
+  }
   currentLeagueIndex++;
 
   if (currentLeagueIndex >= MOCK_LEAGUE_COUNT)
@@ -152,7 +250,14 @@ void GameManager::nextLeague()
  */
 void GameManager::previousLeague()
 {
-  leaveReceivedSlate();
+  if (receivedLeagueCount > 0)
+  {
+    currentReceivedLeagueIndex = currentReceivedLeagueIndex == 0
+      ? receivedLeagueCount - 1
+      : currentReceivedLeagueIndex - 1;
+    currentReceivedGameIndex = 0;
+    return;
+  }
   if (currentLeagueIndex == 0)
   {
     currentLeagueIndex = MOCK_LEAGUE_COUNT - 1;
@@ -168,9 +273,9 @@ void GameManager::previousLeague()
 
 const char *GameManager::getCurrentLeagueName()
 {
-  if (receivedSlateActive)
+  if (receivedLeagueCount > 0)
   {
-    return receivedLeague;
+    return receivedLeagues[currentReceivedLeagueIndex].name;
   }
 
   return getCurrentLeague().name;
@@ -179,9 +284,9 @@ const char *GameManager::getCurrentLeagueName()
 
 uint8_t GameManager::getCurrentGameNumber()
 {
-  if (receivedSlateActive)
+  if (receivedLeagueCount > 0)
   {
-    return receivedGameIndex + 1;
+    return currentReceivedGameIndex + 1;
   }
 
   getCurrentGame();
@@ -191,9 +296,9 @@ uint8_t GameManager::getCurrentGameNumber()
 
 uint8_t GameManager::getCurrentGameCount()
 {
-  if (receivedSlateActive)
+  if (receivedLeagueCount > 0)
   {
-    return receivedGameCount;
+    return receivedLeagues[currentReceivedLeagueIndex].gameCount;
   }
 
   return getCurrentLeague().gameCount;
@@ -202,9 +307,9 @@ uint8_t GameManager::getCurrentGameCount()
 
 uint8_t GameManager::getCurrentLeagueNumber()
 {
-  if (receivedSlateActive)
+  if (receivedLeagueCount > 0)
   {
-    return 1;
+    return currentReceivedLeagueIndex + 1;
   }
 
   getCurrentLeague();
@@ -214,10 +319,68 @@ uint8_t GameManager::getCurrentLeagueNumber()
 
 uint8_t GameManager::getLeagueCount()
 {
-  if (receivedSlateActive)
+  if (receivedLeagueCount > 0)
   {
-    return 1;
+    return receivedLeagueCount;
   }
 
   return MOCK_LEAGUE_COUNT;
+}
+
+
+bool GameManager::isCurrentLeagueGolf()
+{
+  return receivedLeagueCount > 0 &&
+    receivedLeagues[currentReceivedLeagueIndex].contentType == RECEIVED_GOLF;
+}
+
+
+const char *GameManager::getCurrentTournamentName()
+{
+  return isCurrentLeagueGolf()
+    ? receivedLeagues[currentReceivedLeagueIndex].tournamentName
+    : "";
+}
+
+
+const GolfLeaderboardRow *GameManager::getCurrentGolfPageRows()
+{
+  if (!isCurrentLeagueGolf())
+  {
+    return nullptr;
+  }
+  return &receivedLeagues[currentReceivedLeagueIndex]
+    .golfers[currentReceivedGameIndex * GOLFERS_PER_PAGE];
+}
+
+
+uint8_t GameManager::getCurrentGolfPageRowCount()
+{
+  if (!isCurrentLeagueGolf())
+  {
+    return 0;
+  }
+  const ReceivedLeague &league = receivedLeagues[currentReceivedLeagueIndex];
+  uint8_t start = currentReceivedGameIndex * GOLFERS_PER_PAGE;
+  uint8_t remaining = league.golferCount - start;
+  return remaining > GOLFERS_PER_PAGE ? GOLFERS_PER_PAGE : remaining;
+}
+
+
+uint8_t GameManager::getCurrentGolfPageNumber()
+{
+  return isCurrentLeagueGolf() ? currentReceivedGameIndex + 1 : 0;
+}
+
+
+uint8_t GameManager::getCurrentGolfPageCount()
+{
+  if (!isCurrentLeagueGolf())
+  {
+    return 0;
+  }
+  return (
+    receivedLeagues[currentReceivedLeagueIndex].golferCount +
+    GOLFERS_PER_PAGE - 1
+  ) / GOLFERS_PER_PAGE;
 }

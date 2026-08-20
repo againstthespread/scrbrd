@@ -16,7 +16,7 @@ namespace
 
   bool clientConnected = false;
   bool shouldAdvertise = false;
-  const uint8_t RECEIVED_MESSAGE_QUEUE_CAPACITY = 24;
+  const uint8_t RECEIVED_MESSAGE_QUEUE_CAPACITY = 56;
   String receivedMessages[RECEIVED_MESSAGE_QUEUE_CAPACITY];
   volatile uint8_t receivedMessageHead = 0;
   volatile uint8_t receivedMessageTail = 0;
