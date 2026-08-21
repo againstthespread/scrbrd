@@ -19,6 +19,11 @@ struct GameData
   uint8_t homeScore;
   char clock[25];
   char eventId[49];
+  bool hasBaseballState;
+  bool runnerOnFirst;
+  bool runnerOnSecond;
+  bool runnerOnThird;
+  uint8_t outs;
 };
 
 struct GolfLeaderboardRow

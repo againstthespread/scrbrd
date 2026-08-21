@@ -93,6 +93,20 @@ bool GameManager::setReceivedSlate(
   uint8_t targetIndex = existingIndex >= 0
     ? static_cast<uint8_t>(existingIndex)
     : receivedLeagueCount;
+  const bool replacingActive = existingIndex >= 0 &&
+    targetIndex == currentReceivedLeagueIndex;
+  const uint8_t previousGameIndex = currentReceivedGameIndex;
+  char previousEventId[49] = {};
+  if (replacingActive &&
+      receivedLeagues[targetIndex].contentType == RECEIVED_TEAM_SPORT &&
+      previousGameIndex < receivedLeagues[targetIndex].gameCount)
+  {
+    strlcpy(
+      previousEventId,
+      receivedLeagues[targetIndex].games[previousGameIndex].eventId,
+      sizeof(previousEventId)
+    );
+  }
   ReceivedLeague &target = receivedLeagues[targetIndex];
   strlcpy(target.name, league, sizeof(target.name));
   for (uint8_t index = 0; index < gameCount; index++)
@@ -111,9 +125,27 @@ bool GameManager::setReceivedSlate(
       currentReceivedGameIndex = 0;
     }
   }
-  else if (targetIndex == currentReceivedLeagueIndex)
+  else if (replacingActive)
   {
-    currentReceivedGameIndex = 0;
+    bool restoredByEventId = false;
+    if (previousEventId[0] != '\0')
+    {
+      for (uint8_t index = 0; index < gameCount; index++)
+      {
+        if (strcmp(target.games[index].eventId, previousEventId) == 0)
+        {
+          currentReceivedGameIndex = index;
+          restoredByEventId = true;
+          break;
+        }
+      }
+    }
+    if (!restoredByEventId)
+    {
+      currentReceivedGameIndex = previousGameIndex < gameCount
+        ? previousGameIndex
+        : gameCount - 1;
+    }
   }
   return true;
 }
@@ -139,6 +171,9 @@ bool GameManager::setReceivedGolfLeaderboard(
   uint8_t targetIndex = existingIndex >= 0
     ? static_cast<uint8_t>(existingIndex)
     : receivedLeagueCount;
+  const bool replacingActive = existingIndex >= 0 &&
+    targetIndex == currentReceivedLeagueIndex;
+  const uint8_t previousPageIndex = currentReceivedGameIndex;
   ReceivedLeague &target = receivedLeagues[targetIndex];
   strlcpy(target.name, league, sizeof(target.name));
   strlcpy(target.tournamentId, tournamentId, sizeof(target.tournamentId));
@@ -158,9 +193,13 @@ bool GameManager::setReceivedGolfLeaderboard(
       currentReceivedGameIndex = 0;
     }
   }
-  else if (targetIndex == currentReceivedLeagueIndex)
+  else if (replacingActive)
   {
-    currentReceivedGameIndex = 0;
+    const uint8_t pageCount =
+      (golferCount + GOLFERS_PER_PAGE - 1) / GOLFERS_PER_PAGE;
+    currentReceivedGameIndex = previousPageIndex < pageCount
+      ? previousPageIndex
+      : pageCount - 1;
   }
   return true;
 }

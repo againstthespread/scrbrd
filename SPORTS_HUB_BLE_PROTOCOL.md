@@ -36,6 +36,13 @@ UPCOMING
 LIVE
 FINAL
 
+Optional live MLB fields:
+- `onFirst`, `onSecond`, `onThird`: booleans indicating occupied bases.
+- `outs`: integer from 0 through 2.
+- All four fields must be present together when baseball state is supplied.
+- Packets without these fields remain valid and clear/hide baseball state.
+- Upcoming, final, and non-MLB games omit the fields.
+
 Game slate packet:
 
 {
@@ -75,6 +82,8 @@ Chunked-transfer rules:
 Received-league storage and navigation:
 - The `league` in `slate_start` is the stored slate identity; `slateId` identifies only its transfer.
 - A successful `slate_end` replaces only the matching league or appends it if it is new.
+- Live refresh sends a complete replacement only for the changed league. Team and PGA datasets coexist.
+- Replacing the active team league preserves the selected event by stable `id` when possible, otherwise it clamps the prior numeric game index.
 - Up to 8 received leagues are stored independently, with up to 20 games each.
 - Failed or incomplete transfers never alter any stored league.
 - Received leagues retain insertion order.
@@ -94,4 +103,6 @@ Golf rules:
 - Tournament and player identifiers are metadata owned by firmware buffers.
 - Golfer rows contain `id`, `name`, official `rank`, normalized `score`, and optional `detail`.
 - Only a complete matching `golf_end` atomically replaces PGA. Team leagues are unaffected.
+- Replacing PGA during live refresh preserves the current page when possible and clamps it if the refreshed leaderboard has fewer pages.
+- Tournament discovery is an internal responsibility of the selected mobile data provider.
 - Single-click and `NEXT_GAME` advance five golfers per page and wrap. League navigation resets the page to 1.

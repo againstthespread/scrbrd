@@ -253,6 +253,63 @@ void drawHeader()
 }
 
 
+void drawBase(int16_t centerX, int16_t centerY, bool occupied)
+{
+  const int16_t radius = 4;
+  uint16_t color = occupied ? YELLOW : COLOR_GRAY;
+  if (occupied)
+  {
+    gfx->fillTriangle(
+      centerX,
+      centerY - radius,
+      centerX - radius,
+      centerY,
+      centerX + radius,
+      centerY,
+      color
+    );
+    gfx->fillTriangle(
+      centerX,
+      centerY + radius,
+      centerX - radius,
+      centerY,
+      centerX + radius,
+      centerY,
+      color
+    );
+    return;
+  }
+  gfx->drawLine(centerX, centerY - radius, centerX + radius, centerY, color);
+  gfx->drawLine(centerX + radius, centerY, centerX, centerY + radius, color);
+  gfx->drawLine(centerX, centerY + radius, centerX - radius, centerY, color);
+  gfx->drawLine(centerX - radius, centerY, centerX, centerY - radius, color);
+}
+
+
+void drawBaseballSituation(const GameData &game)
+{
+  // Compact 38x34 MLB-only region in the scoreboard card's lower-right:
+  // x=174..212, y=164..198. It stays below the status badge and away from
+  // the header Bluetooth icon.
+  drawBase(193, 168, game.runnerOnSecond);
+  drawBase(183, 178, game.runnerOnThird);
+  drawBase(203, 178, game.runnerOnFirst);
+
+  for (uint8_t index = 0; index < 2; index++)
+  {
+    int16_t x = 188 + index * 11;
+    if (index < game.outs)
+    {
+      gfx->fillCircle(x, 194, 3, RED);
+    }
+    else
+    {
+      gfx->drawCircle(x, 194, 3, COLOR_GRAY);
+    }
+  }
+}
+
+
 /**
  * Draw a scoreboard from game data.
  */
@@ -294,6 +351,12 @@ void drawScoreboard(const GameData &game)
   gfx->setTextSize(1);
   gfx->setCursor(94, 176);
   gfx->println(game.clock);
+
+  if (strcmp(gameManager.getCurrentLeagueName(), "MLB") == 0 &&
+      strcmp(game.status, "LIVE") == 0)
+  {
+    drawBaseballSituation(game);
+  }
 }
 
 
@@ -518,6 +581,28 @@ bool readValidatedGame(JsonObjectConst packet, GameData &game)
   strlcpy(game.clock, clock, sizeof(game.clock));
   game.awayScore = static_cast<uint8_t>(awayScore.as<int>());
   game.homeScore = static_cast<uint8_t>(homeScore.as<int>());
+
+  JsonVariantConst onFirst = packet["onFirst"];
+  JsonVariantConst onSecond = packet["onSecond"];
+  JsonVariantConst onThird = packet["onThird"];
+  JsonVariantConst outs = packet["outs"];
+  bool hasAnyBaseballField = !onFirst.isNull() || !onSecond.isNull() ||
+    !onThird.isNull() || !outs.isNull();
+  if (hasAnyBaseballField)
+  {
+    if (!onFirst.is<bool>() || !onSecond.is<bool>() ||
+        !onThird.is<bool>() || !outs.is<int>() ||
+        outs.as<int>() < 0 || outs.as<int>() > 2)
+    {
+      rejectGamePacket("invalid baseball state");
+      return false;
+    }
+    game.hasBaseballState = true;
+    game.runnerOnFirst = onFirst.as<bool>();
+    game.runnerOnSecond = onSecond.as<bool>();
+    game.runnerOnThird = onThird.as<bool>();
+    game.outs = static_cast<uint8_t>(outs.as<int>());
+  }
   return true;
 }
 
@@ -565,47 +650,16 @@ bool handleGamePacket(const String &message)
   }
 
   const char *league;
-  const char *away;
-  const char *home;
-  const char *status;
-  const char *clock;
-
-  if (!readRequiredText(packet, "league", 12, league) ||
-      !readRequiredText(packet, "away", 32, away) ||
-      !readRequiredText(packet, "home", 32, home) ||
-      !readRequiredText(packet, "status", 8, status) ||
-      !readRequiredText(packet, "clock", 24, clock))
+  if (!readRequiredText(packet, "league", 12, league))
   {
     return false;
   }
-
-  if (strcmp(status, "UPCOMING") != 0 &&
-      strcmp(status, "LIVE") != 0 &&
-      strcmp(status, "FINAL") != 0)
+  GameData game = {};
+  if (!readValidatedGame(packet, game))
   {
-    rejectGamePacket("invalid status");
     return false;
   }
-
-  JsonVariantConst awayScore = packet["awayScore"];
-  JsonVariantConst homeScore = packet["homeScore"];
-  if (!awayScore.is<int>() || !homeScore.is<int>() ||
-      awayScore.as<int>() < 0 || awayScore.as<int>() > 255 ||
-      homeScore.as<int>() < 0 || homeScore.as<int>() > 255)
-  {
-    rejectGamePacket("invalid score");
-    return false;
-  }
-
-  if (!gameManager.setReceivedGame(
-    league,
-    away,
-    home,
-    static_cast<uint8_t>(awayScore.as<int>()),
-    static_cast<uint8_t>(homeScore.as<int>()),
-    status,
-    clock
-  ))
+  if (!gameManager.setReceivedSlate(league, &game, 1))
   {
     rejectGamePacket("received league capacity reached");
     return false;
