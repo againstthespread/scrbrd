@@ -48,10 +48,44 @@ const uint16_t COLOR_LIGHT_BLUE = 0x5D7F;
 const uint16_t COLOR_GRAY = 0x8410;
 const uint16_t COLOR_DARK_GRAY = 0x3186;
 const uint16_t COLOR_STATUS_BG = 0x03E0;
+const uint16_t COLOR_WARNING = 0xFD20;
+
+// Production placeholder: replace this one constant when support email is set.
+const char SCRBRD_SUPPORT_EMAIL[] = "support@_____";
+
+enum SyncLifecycleState : uint8_t
+{
+  SYNC_WAITING,
+  SYNC_IN_PROGRESS,
+  SYNC_COMPLETED,
+  SYNC_COMPLETED_EMPTY,
+};
+
+enum DeviceDisplayState : uint8_t
+{
+  DISPLAY_UNKNOWN,
+  DISPLAY_WAITING_FOR_APP,
+  DISPLAY_CONNECTED_LOADING,
+  DISPLAY_LIVE_CONTENT,
+  DISPLAY_LIVE_CONTENT_PAUSED,
+  DISPLAY_NO_GAMES_TODAY,
+};
 
 const uint8_t BOOT_BUTTON_PIN = 0;
 const unsigned long BUTTON_DEBOUNCE_MS = 50;
 const unsigned long DOUBLE_CLICK_WINDOW_MS = 300;
+const unsigned long FANTASY_ALERT_DURATION_MS = 7000;
+
+struct FantasyAlertData
+{
+  char player[33] = "";
+  char headline[33] = "";
+  char userName[21] = "";
+  char opponentName[21] = "";
+  float points = 0;
+  float userScore = 0;
+  float opponentScore = 0;
+};
 
 GameManager gameManager;
 BluetoothManager bluetoothManager;
@@ -63,6 +97,11 @@ unsigned long lastBootButtonChangeTime = 0;
 uint8_t pendingClickCount = 0;
 unsigned long lastClickTime = 0;
 bool lastDisplayedBluetoothConnected = false;
+SyncLifecycleState syncLifecycleState = SYNC_WAITING;
+DeviceDisplayState lastLoggedDisplayState = DISPLAY_UNKNOWN;
+FantasyAlertData fantasyAlert = {};
+bool fantasyAlertActive = false;
+unsigned long fantasyAlertStartedAt = 0;
 
 // Chunked slate staging is deliberately separate from GameManager's active
 // slate so incomplete transfers can never disturb the displayed games.
@@ -111,9 +150,9 @@ void initializeDisplay()
 
 
 /**
- * Draw the startup screen.
+ * Draw the branded shell shared by connection and empty states.
  */
-void drawSplashScreen()
+void drawStateShell()
 {
   gfx->fillScreen(COLOR_NAVY);
 
@@ -127,19 +166,62 @@ void drawSplashScreen()
     COLOR_LIGHT_BLUE
   );
 
-  gfx->setTextColor(WHITE);
-  gfx->setTextSize(3);
-  gfx->setCursor(48, 82);
-  gfx->println("PETER'S");
-
   gfx->setTextColor(CYAN);
-  gfx->setCursor(32, 120);
-  gfx->println("SPORTS HUB");
+  gfx->setTextSize(3);
+  gfx->setCursor(63, 42);
+  gfx->println("SCRBRD");
+  drawBluetoothIcon(207, 20);
+}
 
+
+void drawConnectScreen()
+{
+  drawStateShell();
+  gfx->setTextColor(WHITE);
+  gfx->setTextSize(2);
+  gfx->setCursor(36, 106);
+  gfx->println("Ready for scores");
   gfx->setTextColor(COLOR_GRAY);
   gfx->setTextSize(1);
-  gfx->setCursor(87, 244);
-  gfx->println("Version 0.1");
+  gfx->setCursor(59, 160);
+  gfx->println("Open the SCRBRD app");
+  gfx->setCursor(91, 176);
+  gfx->println("to connect");
+}
+
+
+void drawConnectedLoadingScreen()
+{
+  drawStateShell();
+  gfx->setTextColor(WHITE);
+  gfx->setTextSize(2);
+  gfx->setCursor(69, 108);
+  gfx->println("Connected");
+  gfx->setTextColor(CYAN);
+  gfx->setTextSize(1);
+  gfx->setCursor(49, 162);
+  gfx->println("Loading today's games...");
+}
+
+
+void drawEmptyTodayScreen()
+{
+  drawStateShell();
+  gfx->setTextColor(WHITE);
+  gfx->setTextSize(2);
+  gfx->setCursor(65, 92);
+  gfx->println("Expecting");
+  gfx->setCursor(59, 115);
+  gfx->println("something?");
+  gfx->setTextColor(COLOR_GRAY);
+  gfx->setTextSize(1);
+  gfx->setCursor(43, 151);
+  gfx->println("Request support for your");
+  gfx->setCursor(64, 165);
+  gfx->println("favorite league at");
+  gfx->setTextColor(CYAN);
+  gfx->setCursor(73, 190);
+  gfx->println(SCRBRD_SUPPORT_EMAIL);
 }
 
 
@@ -234,7 +316,7 @@ void drawHeader()
   gfx->setTextColor(COLOR_GRAY);
   gfx->setTextSize(1);
   gfx->setCursor(18, 14);
-  gfx->println("PETER'S SPORTS HUB");
+  gfx->println("SCRBRD");
 
   gfx->setTextColor(CYAN);
   gfx->setTextSize(2);
@@ -310,6 +392,37 @@ void drawBaseballSituation(const GameData &game)
 }
 
 
+void drawFootballSituation(const GameData &game)
+{
+  // NFL-only detail region: possession marker x=14..20 beside the active
+  // team row, down/distance at x=94..170, y=190 below the game clock.
+  const int16_t possessionY = game.possessionIsHome ? 148 : 116;
+  gfx->fillCircle(17, possessionY, 3, YELLOW);
+  gfx->drawLine(14, possessionY, 20, possessionY, YELLOW);
+
+  gfx->setTextColor(CYAN);
+  gfx->setTextSize(1);
+  gfx->setCursor(94, 190);
+  gfx->print(game.down);
+  switch (game.down)
+  {
+    case 1: gfx->print("st"); break;
+    case 2: gfx->print("nd"); break;
+    case 3: gfx->print("rd"); break;
+    default: gfx->print("th"); break;
+  }
+  gfx->print(" & ");
+  if (game.goalToGo)
+  {
+    gfx->println("Goal");
+  }
+  else
+  {
+    gfx->println(game.distance);
+  }
+}
+
+
 /**
  * Draw a scoreboard from game data.
  */
@@ -356,6 +469,12 @@ void drawScoreboard(const GameData &game)
       strcmp(game.status, "LIVE") == 0)
   {
     drawBaseballSituation(game);
+  }
+  else if (strcmp(gameManager.getCurrentLeagueName(), "NFL") == 0 &&
+           strcmp(game.status, "LIVE") == 0 &&
+           game.hasFootballState)
+  {
+    drawFootballSituation(game);
   }
 }
 
@@ -412,6 +531,77 @@ void drawGolfLeaderboard()
 }
 
 
+String formatFantasyNumber(float value, bool includeSign)
+{
+  const float tenths = roundf(value * 10.0f) / 10.0f;
+  const uint8_t decimals = fabsf(value - tenths) > 0.0009f ? 2 : 1;
+  String formatted(value, static_cast<unsigned int>(decimals));
+  if (includeSign && value >= 0)
+  {
+    formatted = "+" + formatted;
+  }
+  return formatted;
+}
+
+
+void drawFantasyAlert()
+{
+  gfx->fillScreen(COLOR_NAVY);
+  gfx->drawRoundRect(8, 8, 224, 264, 12, COLOR_LIGHT_BLUE);
+
+  gfx->setTextColor(CYAN);
+  gfx->setTextSize(2);
+  gfx->setCursor(76, 22);
+  gfx->println("FANTASY");
+  drawBluetoothIcon(208, 18);
+
+  String player = fantasyAlert.player;
+  player.toUpperCase();
+  if (player.length() > 20)
+  {
+    player = player.substring(0, 19) + "~";
+  }
+  gfx->setTextColor(WHITE);
+  gfx->setTextSize(2);
+  gfx->setCursor(16, 68);
+  gfx->println(player);
+
+  if (fantasyAlert.headline[0] != '\0')
+  {
+    String headline = fantasyAlert.headline;
+    headline.toUpperCase();
+    gfx->setTextColor(YELLOW);
+    gfx->setTextSize(1);
+    gfx->setCursor(18, 105);
+    gfx->println(headline);
+  }
+
+  gfx->fillRoundRect(18, 132, 204, 62, 10, COLOR_DARK_BLUE);
+  gfx->setTextColor(GREEN);
+  gfx->setTextSize(3);
+  gfx->setCursor(34, 151);
+  gfx->print(formatFantasyNumber(fantasyAlert.points, true));
+  gfx->println(" PTS");
+
+  String user = fantasyAlert.userName;
+  String opponent = fantasyAlert.opponentName;
+  user.toUpperCase();
+  opponent.toUpperCase();
+  gfx->setTextColor(WHITE);
+  gfx->setTextSize(1);
+  gfx->setCursor(14, 226);
+  gfx->print(user);
+  gfx->print(" ");
+  gfx->print(formatFantasyNumber(fantasyAlert.userScore, false));
+  gfx->setTextColor(COLOR_GRAY);
+  gfx->print("  *  ");
+  gfx->setTextColor(WHITE);
+  gfx->print(opponent);
+  gfx->print(" ");
+  gfx->println(formatFantasyNumber(fantasyAlert.opponentScore, false));
+}
+
+
 /**
  * Draw the complete dashboard.
  */
@@ -428,6 +618,106 @@ void drawDashboard()
   {
     drawScoreboard(gameManager.getCurrentGame());
   }
+}
+
+
+void drawUpdatesPausedWarning()
+{
+  gfx->fillRoundRect(103, 11, 96, 14, 4, COLOR_DARK_BLUE);
+  gfx->setTextColor(COLOR_WARNING);
+  gfx->setTextSize(1);
+  gfx->setCursor(108, 15);
+  gfx->println("UPDATES PAUSED");
+}
+
+
+DeviceDisplayState currentDisplayState()
+{
+  if (gameManager.hasReceivedContent())
+  {
+    return bluetoothManager.isBluetoothConnected()
+      ? DISPLAY_LIVE_CONTENT
+      : DISPLAY_LIVE_CONTENT_PAUSED;
+  }
+  if (syncLifecycleState == SYNC_COMPLETED_EMPTY)
+  {
+    return DISPLAY_NO_GAMES_TODAY;
+  }
+  return bluetoothManager.isBluetoothConnected()
+    ? DISPLAY_CONNECTED_LOADING
+    : DISPLAY_WAITING_FOR_APP;
+}
+
+
+const char *displayStateDiagnostic(DeviceDisplayState state)
+{
+  switch (state)
+  {
+    case DISPLAY_WAITING_FOR_APP: return "waiting for app";
+    case DISPLAY_CONNECTED_LOADING: return "connected/loading";
+    case DISPLAY_LIVE_CONTENT: return "live content";
+    case DISPLAY_LIVE_CONTENT_PAUSED:
+      return "live content / updates paused";
+    case DISPLAY_NO_GAMES_TODAY: return "no games today";
+    default: return "unknown";
+  }
+}
+
+
+void drawCurrentScreen()
+{
+  if (fantasyAlertActive)
+  {
+    return;
+  }
+  const DeviceDisplayState state = currentDisplayState();
+  if (state != lastLoggedDisplayState)
+  {
+    lastLoggedDisplayState = state;
+    USBSerial.print("Display state: ");
+    USBSerial.println(displayStateDiagnostic(state));
+  }
+
+  switch (state)
+  {
+    case DISPLAY_LIVE_CONTENT:
+      drawDashboard();
+      break;
+    case DISPLAY_LIVE_CONTENT_PAUSED:
+      drawDashboard();
+      drawUpdatesPausedWarning();
+      break;
+    case DISPLAY_NO_GAMES_TODAY:
+      drawEmptyTodayScreen();
+      break;
+    case DISPLAY_CONNECTED_LOADING:
+      drawConnectedLoadingScreen();
+      break;
+    case DISPLAY_WAITING_FOR_APP:
+    default:
+      drawConnectScreen();
+      break;
+  }
+}
+
+
+void expireFantasyAlertIfNeeded()
+{
+  if (!fantasyAlertActive ||
+      millis() - fantasyAlertStartedAt < FANTASY_ALERT_DURATION_MS)
+  {
+    return;
+  }
+  fantasyAlertActive = false;
+  USBSerial.println("Fantasy alert expired; restoring current screen.");
+  drawCurrentScreen();
+}
+
+
+void markRealContentActivated()
+{
+  syncLifecycleState = SYNC_COMPLETED;
+  drawCurrentScreen();
 }
 
 
@@ -603,6 +893,31 @@ bool readValidatedGame(JsonObjectConst packet, GameData &game)
     game.runnerOnThird = onThird.as<bool>();
     game.outs = static_cast<uint8_t>(outs.as<int>());
   }
+  JsonVariantConst possession = packet["possession"];
+  JsonVariantConst down = packet["down"];
+  JsonVariantConst distance = packet["distance"];
+  JsonVariantConst goalToGo = packet["goalToGo"];
+  bool hasAnyFootballField = !possession.isNull() || !down.isNull() ||
+    !distance.isNull() || !goalToGo.isNull();
+  if (hasAnyFootballField)
+  {
+    if (!possession.is<const char *>() ||
+        (strcmp(possession.as<const char *>(), "away") != 0 &&
+         strcmp(possession.as<const char *>(), "home") != 0) ||
+        !down.is<int>() || down.as<int>() < 1 || down.as<int>() > 4 ||
+        !distance.is<int>() || distance.as<int>() < 0 ||
+        distance.as<int>() > 99 || !goalToGo.is<bool>())
+    {
+      rejectGamePacket("invalid football state");
+      return false;
+    }
+    game.hasFootballState = true;
+    game.possessionIsHome =
+      strcmp(possession.as<const char *>(), "home") == 0;
+    game.down = static_cast<uint8_t>(down.as<int>());
+    game.distance = static_cast<uint8_t>(distance.as<int>());
+    game.goalToGo = goalToGo.as<bool>();
+  }
   return true;
 }
 
@@ -664,8 +979,101 @@ bool handleGamePacket(const String &message)
     rejectGamePacket("received league capacity reached");
     return false;
   }
-  drawDashboard();
+  markRealContentActivated();
   USBSerial.println("BLE game accepted.");
+  return true;
+}
+
+
+bool handleFantasyAlertPacket(const String &message)
+{
+  if (message.length() > 512 || !isValidUtf8(message))
+  {
+    rejectGamePacket("invalid fantasy_alert size/UTF-8");
+    return false;
+  }
+  JsonDocument document;
+  DeserializationError error = deserializeJson(
+    document,
+    message.c_str(),
+    message.length()
+  );
+  if (error || !document.is<JsonObject>())
+  {
+    rejectGamePacket(error ? error.c_str() : "fantasy root is not object");
+    return false;
+  }
+  JsonObjectConst packet = document.as<JsonObjectConst>();
+  if (!packet["version"].is<int>() || packet["version"].as<int>() != 1 ||
+      !packet["type"].is<const char *>() ||
+      strcmp(packet["type"].as<const char *>(), "fantasy_alert") != 0)
+  {
+    rejectGamePacket("invalid fantasy_alert header");
+    return false;
+  }
+
+  const char *player;
+  const char *userName;
+  const char *opponentName;
+  if (!readRequiredText(packet, "player", 32, player) ||
+      !readRequiredText(packet, "userName", 20, userName) ||
+      !readRequiredText(packet, "opponentName", 20, opponentName))
+  {
+    return false;
+  }
+  JsonVariantConst headlineField = packet["headline"];
+  if (!headlineField.is<const char *>() ||
+      strlen(headlineField.as<const char *>()) > 32)
+  {
+    rejectGamePacket("headline");
+    return false;
+  }
+  JsonVariantConst pointsField = packet["points"];
+  JsonVariantConst userScoreField = packet["userScore"];
+  JsonVariantConst opponentScoreField = packet["opponentScore"];
+  JsonVariantConst confidenceField = packet["confidence"];
+  if (!pointsField.is<float>() || !userScoreField.is<float>() ||
+      !opponentScoreField.is<float>() || !confidenceField.is<const char *>())
+  {
+    rejectGamePacket("invalid fantasy numeric field");
+    return false;
+  }
+  const char *confidence = confidenceField.as<const char *>();
+  if (strcmp(confidence, "high") != 0 &&
+      strcmp(confidence, "medium") != 0 &&
+      strcmp(confidence, "low") != 0 &&
+      strcmp(confidence, "none") != 0)
+  {
+    rejectGamePacket("invalid fantasy confidence");
+    return false;
+  }
+  const float points = pointsField.as<float>();
+  const float userScore = userScoreField.as<float>();
+  const float opponentScore = opponentScoreField.as<float>();
+  if (!isfinite(points) || !isfinite(userScore) || !isfinite(opponentScore) ||
+      fabsf(points) > 1000 || fabsf(userScore) > 10000 ||
+      fabsf(opponentScore) > 10000)
+  {
+    rejectGamePacket("fantasy numeric field out of range");
+    return false;
+  }
+
+  FantasyAlertData next = {};
+  strlcpy(next.player, player, sizeof(next.player));
+  strlcpy(next.headline, headlineField.as<const char *>(), sizeof(next.headline));
+  strlcpy(next.userName, userName, sizeof(next.userName));
+  strlcpy(next.opponentName, opponentName, sizeof(next.opponentName));
+  next.points = points;
+  next.userScore = userScore;
+  next.opponentScore = opponentScore;
+
+  // V1 is newest-wins: replace any visible alert and restart its lifetime.
+  fantasyAlert = next;
+  fantasyAlertActive = true;
+  fantasyAlertStartedAt = millis();
+  USBSerial.print("Fantasy alert displayed: ");
+  USBSerial.println(fantasyAlert.player);
+  drawFantasyAlert();
   return true;
 }
 
@@ -740,7 +1148,7 @@ bool handleSlatePacket(const String &message)
     rejectGamePacket("received league capacity reached");
     return false;
   }
-  drawDashboard();
+  markRealContentActivated();
   USBSerial.print("BLE slate accepted with ");
   USBSerial.print(index);
   USBSerial.println(" games.");
@@ -976,7 +1384,7 @@ bool handleSlateEndPacket(const String &message)
   USBSerial.print("BLE slate transfer complete: id=");
   USBSerial.println(stagingSlateId);
   clearStagingSlate(nullptr);
-  drawDashboard();
+  markRealContentActivated();
   return true;
 }
 
@@ -1183,7 +1591,7 @@ bool handleGolfEndPacket(const String &message)
   }
   USBSerial.println("BLE golf transfer complete.");
   clearGolfStaging(nullptr);
-  drawDashboard();
+  markRealContentActivated();
   return true;
 }
 
@@ -1193,19 +1601,54 @@ bool handleGolfEndPacket(const String &message)
  */
 void handleBluetoothCommand(const String &message)
 {
+  if (message == "SYNC_START")
+  {
+    USBSerial.println("BLE command: SYNC_START");
+    syncLifecycleState = SYNC_IN_PROGRESS;
+    drawCurrentScreen();
+    return;
+  }
+
+  if (message == "SYNC_COMPLETE")
+  {
+    USBSerial.println("BLE command: SYNC_COMPLETE");
+    syncLifecycleState = SYNC_COMPLETED;
+    drawCurrentScreen();
+    return;
+  }
+
+  if (message == "SYNC_EMPTY")
+  {
+    USBSerial.println("BLE command: SYNC_EMPTY");
+    if (gameManager.hasReceivedContent())
+    {
+      USBSerial.println("SYNC_EMPTY ignored: cached real content exists.");
+      return;
+    }
+    syncLifecycleState = SYNC_COMPLETED_EMPTY;
+    drawCurrentScreen();
+    return;
+  }
+
   if (message == "NEXT_GAME")
   {
     USBSerial.println("BLE command: NEXT_GAME");
-    gameManager.nextGame();
-    drawDashboard();
+    if (gameManager.hasReceivedContent())
+    {
+      gameManager.nextGame();
+      drawCurrentScreen();
+    }
     return;
   }
 
   if (message == "NEXT_LEAGUE")
   {
     USBSerial.println("BLE command: NEXT_LEAGUE");
-    gameManager.nextLeague();
-    drawDashboard();
+    if (gameManager.hasReceivedContent())
+    {
+      gameManager.nextLeague();
+      drawCurrentScreen();
+    }
     return;
   }
 
@@ -1219,6 +1662,11 @@ void handleBluetoothCommand(const String &message)
       document["type"].is<const char *>())
   {
     const char *type = document["type"].as<const char *>();
+    if (strcmp(type, "fantasy_alert") == 0)
+    {
+      handleFantasyAlertPacket(message);
+      return;
+    }
     if (strcmp(type, "slate") == 0)
     {
       handleSlatePacket(message);
@@ -1268,13 +1716,14 @@ void handleBluetoothMessages()
   bluetoothManager.updateBluetooth();
   expireStagingSlateIfNeeded();
   expireGolfStagingIfNeeded();
+  expireFantasyAlertIfNeeded();
 
   bool bluetoothConnected = bluetoothManager.isBluetoothConnected();
 
   if (bluetoothConnected != lastDisplayedBluetoothConnected)
   {
     lastDisplayedBluetoothConnected = bluetoothConnected;
-    drawDashboard();
+    drawCurrentScreen();
   }
 
   if (!bluetoothManager.hasReceivedMessage())
@@ -1302,9 +1751,14 @@ void handlePendingClick()
   }
 
   pendingClickCount = 0;
+  if (!gameManager.hasReceivedContent())
+  {
+    USBSerial.println("Single click ignored: no received content.");
+    return;
+  }
   USBSerial.println("Single click: next game");
   gameManager.nextGame();
-  drawDashboard();
+  drawCurrentScreen();
 }
 
 
@@ -1318,9 +1772,14 @@ void countBootButtonClick()
   if (pendingClickCount == 1 && (now - lastClickTime) <= DOUBLE_CLICK_WINDOW_MS)
   {
     pendingClickCount = 0;
+    if (!gameManager.hasReceivedContent())
+    {
+      USBSerial.println("Double click ignored: no received content.");
+      return;
+    }
     USBSerial.println("Double click: next league");
     gameManager.nextLeague();
-    drawDashboard();
+    drawCurrentScreen();
     return;
   }
 
@@ -1376,7 +1835,7 @@ void handleBootButton()
 void setup()
 {
   USBSerial.begin(115200);
-  USBSerial.println("Starting Peter's Sports Hub...");
+  USBSerial.println("Starting SCRBRD...");
 
   pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
   lastBootButtonReading = digitalRead(BOOT_BUTTON_PIN);
@@ -1386,13 +1845,9 @@ void setup()
   bluetoothManager.beginBluetooth();
   lastDisplayedBluetoothConnected = bluetoothManager.isBluetoothConnected();
 
-  drawSplashScreen();
+  drawCurrentScreen();
 
-  delay(2000);
-
-  drawDashboard();
-
-  USBSerial.println("Sports Hub is running.");
+  USBSerial.println("SCRBRD is running.");
 }
 
 

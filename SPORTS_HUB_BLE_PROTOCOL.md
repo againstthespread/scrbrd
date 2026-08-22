@@ -17,6 +17,14 @@ d8f6a9b2-7a5e-4e8c-9f2a-2b2f5b6c1001
 Encoding:
 UTF-8 JSON
 
+Session lifecycle commands (existing writable characteristic):
+- `SYNC_START`: the app began its initial daily sync. Without cached real content, SCRBRD shows the connected/loading state. Cached content remains visible.
+- `SYNC_COMPLETE`: the sync completed with at least one successfully loaded league. Content transfers themselves also activate the normal dashboard for older app compatibility.
+- `SYNC_EMPTY`: the app explicitly completed sync with zero supported content. SCRBRD shows the no-games-today screen only when no real content is stored.
+- These short text commands are backward-compatible, use the existing RX characteristic, and do not change protocol version or UUIDs.
+- `SYNC_EMPTY` is never inferred merely because packets have not arrived.
+- Cached team/PGA content survives BLE disconnect, remains navigable, and is marked `UPDATES PAUSED` until reconnection.
+
 Game packet:
 
 {
@@ -42,6 +50,13 @@ Optional live MLB fields:
 - All four fields must be present together when baseball state is supplied.
 - Packets without these fields remain valid and clear/hide baseball state.
 - Upcoming, final, and non-MLB games omit the fields.
+
+Optional live NFL fields:
+- `possession`: `"away"` or `"home"`.
+- `down`: integer from 1 through 4.
+- `distance`: integer from 0 through 99.
+- `goalToGo`: boolean; when true the display renders `Goal` instead of distance.
+- All four fields must be present together. Legacy, non-NFL, upcoming, and final packets omit them and clear/hide football state.
 
 Game slate packet:
 
@@ -106,3 +121,23 @@ Golf rules:
 - Replacing PGA during live refresh preserves the current page when possible and clamps it if the refreshed leaderboard has fewer pages.
 - Tournament discovery is an internal responsibility of the selected mobile data provider.
 - Single-click and `NEXT_GAME` advance five golfers per page and wrap. League navigation resets the page to 1.
+
+Fantasy scoring alert (ephemeral overlay):
+
+```json
+{"version":1,"type":"fantasy_alert","player":"Ja'Marr Chase","headline":"50 YD REC TD","points":12.0,"userName":"PETER","userScore":104.7,"opponentName":"MIKE","opponentScore":97.2,"confidence":"high"}
+```
+
+- This is a transient overlay event, never a sports league or persistent game,
+  slate, golf, or session-baseline record.
+- Packets are compact UTF-8 JSON at most 512 bytes. `player` is required and
+  limited to 32 bytes; optional `headline` is limited to 32 bytes; both matchup
+  names are required and limited to 20 bytes each.
+- `points` is Sleeper's authoritative delta. All three score fields are finite
+  JSON numbers. Confidence is diagnostic metadata and is not rendered.
+- The overlay lasts approximately seven seconds using non-blocking `millis()`
+  state. A new alert replaces the visible alert and restarts the duration; no
+  queue or persistence is used.
+- Underlying sports transfers and button navigation remain active without
+  dismissing the overlay. Expiration invokes the normal centralized renderer,
+  revealing the newest selected game/PGA page and current connection state.
