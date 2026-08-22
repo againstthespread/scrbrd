@@ -602,6 +602,54 @@ void drawFantasyAlert()
 }
 
 
+void drawFantasyMatchup()
+{
+  const FantasyMatchupData *matchup = gameManager.getCurrentFantasyMatchup();
+  if (matchup == nullptr)
+  {
+    return;
+  }
+  gfx->fillRoundRect(10, 62, 220, 180, 10, COLOR_DARK_GRAY);
+  gfx->drawRoundRect(10, 62, 220, 180, 10, COLOR_LIGHT_BLUE);
+
+  String league = matchup->leagueName;
+  if (league.length() > 31) league = league.substring(0, 30) + "~";
+  gfx->setTextColor(COLOR_GRAY);
+  gfx->setTextSize(1);
+  gfx->setCursor(20, 73);
+  gfx->println(league);
+  gfx->drawFastHLine(20, 88, 200, COLOR_GRAY);
+
+  String user = matchup->userName;
+  String opponent = matchup->opponentName;
+  user.toUpperCase();
+  opponent.toUpperCase();
+  gfx->setTextSize(2);
+  gfx->setTextColor(WHITE);
+  gfx->setCursor(20, 105);
+  gfx->println(user);
+  gfx->setTextColor(GREEN);
+  gfx->setCursor(146, 105);
+  gfx->println(formatFantasyNumber(matchup->userScore, false));
+
+  gfx->setTextColor(WHITE);
+  gfx->setCursor(20, 145);
+  gfx->println(opponent);
+  gfx->setTextColor(YELLOW);
+  gfx->setCursor(146, 145);
+  gfx->println(formatFantasyNumber(matchup->opponentScore, false));
+
+  gfx->drawFastHLine(20, 183, 200, COLOR_GRAY);
+  gfx->setTextColor(CYAN);
+  gfx->setTextSize(1);
+  gfx->setCursor(70, 205);
+  gfx->print("WEEK ");
+  gfx->print(matchup->week);
+  gfx->print("  *  ");
+  gfx->println(matchup->status);
+}
+
+
 /**
  * Draw the complete dashboard.
  */
@@ -613,6 +661,10 @@ void drawDashboard()
   if (gameManager.isCurrentLeagueGolf())
   {
     drawGolfLeaderboard();
+  }
+  else if (gameManager.isCurrentLeagueFantasy())
+  {
+    drawFantasyMatchup();
   }
   else
   {
@@ -1074,6 +1126,113 @@ bool handleFantasyAlertPacket(const String &message)
   USBSerial.print("Fantasy alert displayed: ");
   USBSerial.println(fantasyAlert.player);
   drawFantasyAlert();
+  return true;
+}
+
+
+bool handleFantasyMatchupPacket(const String &message)
+{
+  if (message.length() > 512 || !isValidUtf8(message))
+  {
+    rejectGamePacket("invalid fantasy_matchup size/UTF-8");
+    return false;
+  }
+  JsonDocument document;
+  DeserializationError error = deserializeJson(document, message.c_str(), message.length());
+  if (error || !document.is<JsonObject>())
+  {
+    rejectGamePacket(error ? error.c_str() : "fantasy matchup root is not object");
+    return false;
+  }
+  JsonObjectConst packet = document.as<JsonObjectConst>();
+  if (!packet["version"].is<int>() || packet["version"].as<int>() != 1 ||
+      !packet["type"].is<const char *>() ||
+      strcmp(packet["type"].as<const char *>(), "fantasy_matchup") != 0)
+  {
+    rejectGamePacket("invalid fantasy_matchup header");
+    return false;
+  }
+  const char *leagueName;
+  const char *userName;
+  const char *opponentName;
+  const char *status;
+  if (!readRequiredText(packet, "leagueName", 48, leagueName) ||
+      !readRequiredText(packet, "userName", 20, userName) ||
+      !readRequiredText(packet, "opponentName", 20, opponentName) ||
+      !readRequiredText(packet, "status", 8, status))
+  {
+    return false;
+  }
+  if (strcmp(status, "UPCOMING") != 0 && strcmp(status, "LIVE") != 0 &&
+      strcmp(status, "FINAL") != 0)
+  {
+    rejectGamePacket("invalid fantasy matchup status");
+    return false;
+  }
+  JsonVariantConst userScoreField = packet["userScore"];
+  JsonVariantConst opponentScoreField = packet["opponentScore"];
+  JsonVariantConst weekField = packet["week"];
+  if (!userScoreField.is<float>() || !opponentScoreField.is<float>() ||
+      !weekField.is<int>())
+  {
+    rejectGamePacket("invalid fantasy matchup numeric field");
+    return false;
+  }
+  const float userScore = userScoreField.as<float>();
+  const float opponentScore = opponentScoreField.as<float>();
+  const int week = weekField.as<int>();
+  if (!isfinite(userScore) || !isfinite(opponentScore) ||
+      fabsf(userScore) > 10000 || fabsf(opponentScore) > 10000 ||
+      week < 1 || week > 30)
+  {
+    rejectGamePacket("fantasy matchup numeric field out of range");
+    return false;
+  }
+  FantasyMatchupData next = {};
+  strlcpy(next.leagueName, leagueName, sizeof(next.leagueName));
+  strlcpy(next.userName, userName, sizeof(next.userName));
+  strlcpy(next.opponentName, opponentName, sizeof(next.opponentName));
+  strlcpy(next.status, status, sizeof(next.status));
+  next.userScore = userScore;
+  next.opponentScore = opponentScore;
+  next.week = static_cast<uint8_t>(week);
+  if (!gameManager.setReceivedFantasyMatchup(next))
+  {
+    rejectGamePacket("received category capacity reached");
+    return false;
+  }
+  USBSerial.println("Persistent fantasy matchup accepted.");
+  markRealContentActivated();
+  return true;
+}
+
+
+bool handleFantasyClearPacket(const String &message)
+{
+  if (message.length() > 512 || !isValidUtf8(message))
+  {
+    rejectGamePacket("invalid fantasy_clear size/UTF-8");
+    return false;
+  }
+  JsonDocument document;
+  DeserializationError error = deserializeJson(document, message.c_str(), message.length());
+  if (error || !document.is<JsonObject>())
+  {
+    rejectGamePacket(error ? error.c_str() : "fantasy clear root is not object");
+    return false;
+  }
+  JsonObjectConst packet = document.as<JsonObjectConst>();
+  if (!packet["version"].is<int>() || packet["version"].as<int>() != 1 ||
+      !packet["type"].is<const char *>() ||
+      strcmp(packet["type"].as<const char *>(), "fantasy_clear") != 0)
+  {
+    rejectGamePacket("invalid fantasy_clear header");
+    return false;
+  }
+  const bool removed = gameManager.clearReceivedFantasyMatchup();
+  USBSerial.println(removed ? "Persistent fantasy matchup cleared." :
+    "Fantasy clear accepted; no Fantasy category present.");
+  drawCurrentScreen();
   return true;
 }
 
@@ -1665,6 +1824,16 @@ void handleBluetoothCommand(const String &message)
     if (strcmp(type, "fantasy_alert") == 0)
     {
       handleFantasyAlertPacket(message);
+      return;
+    }
+    if (strcmp(type, "fantasy_matchup") == 0)
+    {
+      handleFantasyMatchupPacket(message);
+      return;
+    }
+    if (strcmp(type, "fantasy_clear") == 0)
+    {
+      handleFantasyClearPacket(message);
       return;
     }
     if (strcmp(type, "slate") == 0)

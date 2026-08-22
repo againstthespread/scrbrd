@@ -128,6 +128,26 @@ Fantasy scoring alert (ephemeral overlay):
 {"version":1,"type":"fantasy_alert","player":"Ja'Marr Chase","headline":"50 YD REC TD","points":12.0,"userName":"PETER","userScore":104.7,"opponentName":"MIKE","opponentScore":97.2,"confidence":"high"}
 ```
 
+Persistent Fantasy category:
+
+```json
+{"version":1,"type":"fantasy_matchup","leagueName":"Peter's League","userName":"PETER","userScore":104.7,"opponentName":"MIKE","opponentScore":97.2,"week":3,"status":"LIVE"}
+```
+
+Limits: `leagueName` 1-48 characters; team names 1-20; finite scores from
+-10000 through 10000; week 1-30; status `UPCOMING`, `LIVE`, or `FINAL`; total
+UTF-8 JSON no more than 512 bytes. A valid packet creates or atomically updates
+the single persistent Fantasy navigation category. It remains in RAM and is
+navigable while disconnected, using the existing updates-paused treatment.
+
+```json
+{"version":1,"type":"fantasy_clear"}
+```
+
+`fantasy_clear` removes only Fantasy. The temporary `fantasy_alert` overlay is
+independent: it does not change persistent matchup storage, and matchup packets
+received during an alert appear when the overlay expires.
+
 - This is a transient overlay event, never a sports league or persistent game,
   slate, golf, or session-baseline record.
 - Packets are compact UTF-8 JSON at most 512 bytes. `player` is required and

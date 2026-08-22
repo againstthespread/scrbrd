@@ -1,5 +1,10 @@
 #include "GameManager.h"
 
+bool GameManager::hasReceivedContent() const
+{
+  return receivedLeagueCount > 0;
+}
+
 /**
  * Return the selected league, falling back to league 0 if needed.
  */
@@ -205,6 +210,66 @@ bool GameManager::setReceivedGolfLeaderboard(
 }
 
 
+bool GameManager::setReceivedFantasyMatchup(const FantasyMatchupData &matchup)
+{
+  const char *category = "FANTASY";
+  int8_t existingIndex = findReceivedLeague(category);
+  if (existingIndex < 0 && receivedLeagueCount >= MAX_RECEIVED_LEAGUES)
+  {
+    return false;
+  }
+  uint8_t targetIndex = existingIndex >= 0
+    ? static_cast<uint8_t>(existingIndex)
+    : receivedLeagueCount;
+  ReceivedLeague &target = receivedLeagues[targetIndex];
+  strlcpy(target.name, category, sizeof(target.name));
+  target.contentType = RECEIVED_FANTASY;
+  target.gameCount = 1;
+  target.fantasyMatchup = matchup;
+  if (existingIndex < 0)
+  {
+    receivedLeagueCount++;
+    if (receivedLeagueCount == 1)
+    {
+      currentReceivedLeagueIndex = 0;
+      currentReceivedGameIndex = 0;
+    }
+  }
+  return true;
+}
+
+
+bool GameManager::clearReceivedFantasyMatchup()
+{
+  int8_t index = findReceivedLeague("FANTASY");
+  if (index < 0)
+  {
+    return false;
+  }
+  uint8_t removed = static_cast<uint8_t>(index);
+  for (uint8_t cursor = removed; cursor + 1 < receivedLeagueCount; cursor++)
+  {
+    receivedLeagues[cursor] = receivedLeagues[cursor + 1];
+  }
+  receivedLeagues[receivedLeagueCount - 1] = {};
+  receivedLeagueCount--;
+  if (receivedLeagueCount == 0)
+  {
+    currentReceivedLeagueIndex = 0;
+  }
+  else if (currentReceivedLeagueIndex >= receivedLeagueCount)
+  {
+    currentReceivedLeagueIndex = receivedLeagueCount - 1;
+  }
+  else if (removed < currentReceivedLeagueIndex)
+  {
+    currentReceivedLeagueIndex--;
+  }
+  currentReceivedGameIndex = 0;
+  return true;
+}
+
+
 /**
  * Move to the next game in the current league.
  */
@@ -213,6 +278,10 @@ void GameManager::nextGame()
   if (receivedLeagueCount > 0)
   {
     const ReceivedLeague &league = receivedLeagues[currentReceivedLeagueIndex];
+    if (league.contentType == RECEIVED_FANTASY)
+    {
+      return;
+    }
     if (league.contentType == RECEIVED_GOLF)
     {
       uint8_t pageCount =
@@ -337,7 +406,9 @@ uint8_t GameManager::getCurrentGameCount()
 {
   if (receivedLeagueCount > 0)
   {
-    return receivedLeagues[currentReceivedLeagueIndex].gameCount;
+    return receivedLeagues[currentReceivedLeagueIndex].contentType == RECEIVED_FANTASY
+      ? 1
+      : receivedLeagues[currentReceivedLeagueIndex].gameCount;
   }
 
   return getCurrentLeague().gameCount;
@@ -371,6 +442,21 @@ bool GameManager::isCurrentLeagueGolf()
 {
   return receivedLeagueCount > 0 &&
     receivedLeagues[currentReceivedLeagueIndex].contentType == RECEIVED_GOLF;
+}
+
+
+bool GameManager::isCurrentLeagueFantasy()
+{
+  return receivedLeagueCount > 0 &&
+    receivedLeagues[currentReceivedLeagueIndex].contentType == RECEIVED_FANTASY;
+}
+
+
+const FantasyMatchupData *GameManager::getCurrentFantasyMatchup()
+{
+  return isCurrentLeagueFantasy()
+    ? &receivedLeagues[currentReceivedLeagueIndex].fantasyMatchup
+    : nullptr;
 }
 
 

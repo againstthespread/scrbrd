@@ -24,6 +24,11 @@ struct GameData
   bool runnerOnSecond;
   bool runnerOnThird;
   uint8_t outs;
+  bool hasFootballState;
+  bool possessionIsHome;
+  uint8_t down;
+  uint8_t distance;
+  bool goalToGo;
 };
 
 struct GolfLeaderboardRow
@@ -35,10 +40,22 @@ struct GolfLeaderboardRow
   char detail[17];
 };
 
+struct FantasyMatchupData
+{
+  char leagueName[49];
+  char userName[21];
+  float userScore;
+  char opponentName[21];
+  float opponentScore;
+  uint8_t week;
+  char status[9];
+};
+
 enum ReceivedLeagueContentType : uint8_t
 {
   RECEIVED_TEAM_SPORT = 0,
   RECEIVED_GOLF = 1,
+  RECEIVED_FANTASY = 2,
 };
 
 struct LeagueData

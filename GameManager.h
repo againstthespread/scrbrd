@@ -17,6 +17,7 @@ public:
   static const uint8_t MAX_RECEIVED_LEAGUES = 8;
 
   const GameData &getCurrentGame();
+  bool hasReceivedContent() const;
 
   bool setReceivedGame(
     const char *league,
@@ -39,6 +40,8 @@ public:
     const GolfLeaderboardRow *golfers,
     uint8_t golferCount
   );
+  bool setReceivedFantasyMatchup(const FantasyMatchupData &matchup);
+  bool clearReceivedFantasyMatchup();
 
   void nextGame();
   void previousGame();
@@ -51,6 +54,8 @@ public:
   uint8_t getCurrentLeagueNumber();
   uint8_t getLeagueCount();
   bool isCurrentLeagueGolf();
+  bool isCurrentLeagueFantasy();
+  const FantasyMatchupData *getCurrentFantasyMatchup();
   const char *getCurrentTournamentName();
   const GolfLeaderboardRow *getCurrentGolfPageRows();
   uint8_t getCurrentGolfPageRowCount();
@@ -68,6 +73,7 @@ private:
     char tournamentName[49];
     GolfLeaderboardRow golfers[MAX_RECEIVED_GOLFERS];
     uint8_t golferCount;
+    FantasyMatchupData fantasyMatchup;
   };
 
   uint8_t currentLeagueIndex = 0;
