@@ -5,6 +5,17 @@ bool GameManager::hasReceivedContent() const
   return receivedLeagueCount > 0;
 }
 
+void GameManager::clearReceivedContent()
+{
+  for (uint8_t index = 0; index < receivedLeagueCount; index++)
+  {
+    receivedLeagues[index] = {};
+  }
+  receivedLeagueCount = 0;
+  currentReceivedLeagueIndex = 0;
+  currentReceivedGameIndex = 0;
+}
+
 /**
  * Return the selected league, falling back to league 0 if needed.
  */

@@ -42,6 +42,7 @@ public:
   );
   bool setReceivedFantasyMatchup(const FantasyMatchupData &matchup);
   bool clearReceivedFantasyMatchup();
+  void clearReceivedContent();
 
   void nextGame();
   void previousGame();

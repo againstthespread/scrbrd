@@ -101,6 +101,7 @@ SyncLifecycleState syncLifecycleState = SYNC_WAITING;
 DeviceDisplayState lastLoggedDisplayState = DISPLAY_UNKNOWN;
 FantasyAlertData fantasyAlert = {};
 bool fantasyAlertActive = false;
+bool authoritativeSyncSessionActive = false;
 unsigned long fantasyAlertStartedAt = 0;
 
 // Chunked slate staging is deliberately separate from GameManager's active
@@ -602,6 +603,67 @@ void drawFantasyAlert()
 }
 
 
+uint16_t measuredTextWidth(const String &text)
+{
+  int16_t boundsX;
+  int16_t boundsY;
+  uint16_t width;
+  uint16_t height;
+  gfx->getTextBounds(text, 0, 0, &boundsX, &boundsY, &width, &height);
+  return width;
+}
+
+
+String fitFantasyTextToWidth(String text, uint16_t maximumWidth)
+{
+  text.trim();
+  if (measuredTextWidth(text) <= maximumWidth)
+  {
+    return text;
+  }
+  const String ellipsis = "...";
+  while (text.length() > 0)
+  {
+    size_t removeAt = text.length() - 1;
+    while (removeAt > 0 &&
+           (static_cast<uint8_t>(text[removeAt]) & 0xC0) == 0x80)
+    {
+      removeAt--;
+    }
+    text.remove(removeAt);
+    if (measuredTextWidth(text + ellipsis) <= maximumWidth)
+    {
+      return text + ellipsis;
+    }
+  }
+  return "";
+}
+
+
+String formatFantasyMatchupScore(float score)
+{
+  return String(score, 1);
+}
+
+
+void drawFantasyMatchupScore(float score, int16_t baselineY, uint16_t color)
+{
+  const int16_t scoreRight = 220;
+  const uint16_t scoreColumnWidth = 64;
+  String formatted = formatFantasyMatchupScore(score);
+  gfx->setTextSize(2);
+  uint16_t width = measuredTextWidth(formatted);
+  if (width > scoreColumnWidth)
+  {
+    gfx->setTextSize(1);
+    width = measuredTextWidth(formatted);
+  }
+  gfx->setTextColor(color);
+  gfx->setCursor(scoreRight - width, baselineY);
+  gfx->println(formatted);
+}
+
+
 void drawFantasyMatchup()
 {
   const FantasyMatchupData *matchup = gameManager.getCurrentFantasyMatchup();
@@ -612,41 +674,39 @@ void drawFantasyMatchup()
   gfx->fillRoundRect(10, 62, 220, 180, 10, COLOR_DARK_GRAY);
   gfx->drawRoundRect(10, 62, 220, 180, 10, COLOR_LIGHT_BLUE);
 
-  String league = matchup->leagueName;
-  if (league.length() > 31) league = league.substring(0, 30) + "~";
   gfx->setTextColor(COLOR_GRAY);
   gfx->setTextSize(1);
   gfx->setCursor(20, 73);
-  gfx->println(league);
-  gfx->drawFastHLine(20, 88, 200, COLOR_GRAY);
+  gfx->println(fitFantasyTextToWidth(matchup->leagueName, 200));
+  gfx->drawFastHLine(20, 90, 200, COLOR_GRAY);
 
   String user = matchup->userName;
   String opponent = matchup->opponentName;
   user.toUpperCase();
   opponent.toUpperCase();
-  gfx->setTextSize(2);
-  gfx->setTextColor(WHITE);
-  gfx->setCursor(20, 105);
-  gfx->println(user);
-  gfx->setTextColor(GREEN);
-  gfx->setCursor(146, 105);
-  gfx->println(formatFantasyNumber(matchup->userScore, false));
 
+  // Persistent Fantasy-only layout: x=20..148 is reserved for team names,
+  // while x=156..220 is a dedicated, right-aligned score column.
+  gfx->setTextSize(1);
   gfx->setTextColor(WHITE);
-  gfx->setCursor(20, 145);
-  gfx->println(opponent);
-  gfx->setTextColor(YELLOW);
-  gfx->setCursor(146, 145);
-  gfx->println(formatFantasyNumber(matchup->opponentScore, false));
+  gfx->setCursor(20, 112);
+  gfx->println(fitFantasyTextToWidth(user, 128));
+  drawFantasyMatchupScore(matchup->userScore, 105, GREEN);
 
-  gfx->drawFastHLine(20, 183, 200, COLOR_GRAY);
+  gfx->drawFastHLine(20, 137, 200, COLOR_DARK_BLUE);
+  gfx->setTextSize(1);
+  gfx->setTextColor(WHITE);
+  gfx->setCursor(20, 159);
+  gfx->println(fitFantasyTextToWidth(opponent, 128));
+  drawFantasyMatchupScore(matchup->opponentScore, 152, YELLOW);
+
+  gfx->drawFastHLine(20, 190, 200, COLOR_GRAY);
   gfx->setTextColor(CYAN);
   gfx->setTextSize(1);
-  gfx->setCursor(70, 205);
-  gfx->print("WEEK ");
-  gfx->print(matchup->week);
-  gfx->print("  *  ");
-  gfx->println(matchup->status);
+  String footer = "WEEK " + String(matchup->week) + "  *  " + matchup->status;
+  uint16_t footerWidth = measuredTextWidth(footer);
+  gfx->setCursor((240 - footerWidth) / 2, 211);
+  gfx->println(footer);
 }
 
 
@@ -1763,6 +1823,14 @@ void handleBluetoothCommand(const String &message)
   if (message == "SYNC_START")
   {
     USBSerial.println("BLE command: SYNC_START");
+    if (authoritativeSyncSessionActive)
+    {
+      USBSerial.println("Duplicate SYNC_START ignored for active session.");
+      return;
+    }
+    authoritativeSyncSessionActive = true;
+    gameManager.clearReceivedContent();
+    fantasyAlertActive = false;
     syncLifecycleState = SYNC_IN_PROGRESS;
     drawCurrentScreen();
     return;
@@ -1772,6 +1840,7 @@ void handleBluetoothCommand(const String &message)
   {
     USBSerial.println("BLE command: SYNC_COMPLETE");
     syncLifecycleState = SYNC_COMPLETED;
+    authoritativeSyncSessionActive = false;
     drawCurrentScreen();
     return;
   }
@@ -1785,6 +1854,7 @@ void handleBluetoothCommand(const String &message)
       return;
     }
     syncLifecycleState = SYNC_COMPLETED_EMPTY;
+    authoritativeSyncSessionActive = false;
     drawCurrentScreen();
     return;
   }
@@ -1892,6 +1962,10 @@ void handleBluetoothMessages()
   if (bluetoothConnected != lastDisplayedBluetoothConnected)
   {
     lastDisplayedBluetoothConnected = bluetoothConnected;
+    if (!bluetoothConnected)
+    {
+      authoritativeSyncSessionActive = false;
+    }
     drawCurrentScreen();
   }
 

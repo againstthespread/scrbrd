@@ -18,9 +18,9 @@ Encoding:
 UTF-8 JSON
 
 Session lifecycle commands (existing writable characteristic):
-- `SYNC_START`: the app began its initial daily sync. Without cached real content, SCRBRD shows the connected/loading state. Cached content remains visible.
+- `SYNC_START`: the app began an authoritative sync for a genuine new BLE connection session. SCRBRD clears the prior received-content catalog once, then rebuilds it in packet receipt order. Ordinary disconnects do not clear cached content.
 - `SYNC_COMPLETE`: the sync completed with at least one successfully loaded league. Content transfers themselves also activate the normal dashboard for older app compatibility.
-- `SYNC_EMPTY`: the app explicitly completed sync with zero supported content. SCRBRD shows the no-games-today screen only when no real content is stored.
+- `SYNC_EMPTY`: the app explicitly completed the authoritative sync with zero enabled/available content. SCRBRD shows the no-content state.
 - These short text commands are backward-compatible, use the existing RX characteristic, and do not change protocol version or UUIDs.
 - `SYNC_EMPTY` is never inferred merely because packets have not arrived.
 - Cached team/PGA content survives BLE disconnect, remains navigable, and is marked `UPDATES PAUSED` until reconnection.
