@@ -11,7 +11,7 @@
 class GameManager
 {
 public:
-  static const uint8_t MAX_RECEIVED_SLATE_GAMES = 20;
+  static const uint8_t MAX_RECEIVED_SLATE_GAMES = 72;
   static const uint8_t MAX_RECEIVED_GOLFERS = 50;
   static const uint8_t GOLFERS_PER_PAGE = 5;
   static const uint8_t MAX_RECEIVED_LEAGUES = 8;

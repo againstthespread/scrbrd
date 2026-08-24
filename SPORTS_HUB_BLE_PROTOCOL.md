@@ -85,7 +85,7 @@ Preferred chunked slate transfer:
 {"version":1,"type":"slate_end","slateId":"transfer-123"}
 
 Chunked-transfer rules:
-- A logical slate contains 1 through 20 games from one league.
+- A logical slate contains 1 through 72 games from one league.
 - Every packet remains at or below 512 compact UTF-8 JSON bytes.
 - `slateId` is required, non-empty, and at most 48 UTF-8 bytes.
 - Chunks use zero-based indexes and arrive once each in ascending order.
@@ -99,7 +99,7 @@ Received-league storage and navigation:
 - A successful `slate_end` replaces only the matching league or appends it if it is new.
 - Live refresh sends a complete replacement only for the changed league. Team and PGA datasets coexist.
 - Replacing the active team league preserves the selected event by stable `id` when possible, otherwise it clamps the prior numeric game index.
-- Up to 8 received leagues are stored independently, with up to 20 games each.
+- Up to 8 received leagues are stored independently, with up to 72 games each.
 - Failed or incomplete transfers never alter any stored league.
 - Received leagues retain insertion order.
 - BOOT single-click and `NEXT_GAME` cycle games in the active received league.

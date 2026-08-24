@@ -395,7 +395,7 @@ void drawBaseballSituation(const GameData &game)
 
 void drawFootballSituation(const GameData &game)
 {
-  // NFL-only detail region: possession marker x=14..20 beside the active
+  // Football detail region: possession marker x=14..20 beside the active
   // team row, down/distance at x=94..170, y=190 below the game clock.
   const int16_t possessionY = game.possessionIsHome ? 148 : 116;
   gfx->fillCircle(17, possessionY, 3, YELLOW);
@@ -471,7 +471,8 @@ void drawScoreboard(const GameData &game)
   {
     drawBaseballSituation(game);
   }
-  else if (strcmp(gameManager.getCurrentLeagueName(), "NFL") == 0 &&
+  else if ((strcmp(gameManager.getCurrentLeagueName(), "NFL") == 0 ||
+            strcmp(gameManager.getCurrentLeagueName(), "NCAAF") == 0) &&
            strcmp(game.status, "LIVE") == 0 &&
            game.hasFootballState)
   {
