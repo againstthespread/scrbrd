@@ -11,7 +11,8 @@
 class GameManager
 {
 public:
-  static const uint8_t MAX_RECEIVED_SLATE_GAMES = 72;
+  static const uint8_t MAX_STANDARD_SLATE_GAMES = 20;
+  static const uint8_t MAX_LARGE_SLATE_GAMES = 72;
   static const uint8_t MAX_RECEIVED_GOLFERS = 50;
   static const uint8_t GOLFERS_PER_PAGE = 5;
   static const uint8_t MAX_RECEIVED_LEAGUES = 8;
@@ -33,6 +34,7 @@ public:
     const GameData *games,
     uint8_t gameCount
   );
+  const char *getLastSlateError() const;
   bool setReceivedGolfLeaderboard(
     const char *league,
     const char *tournamentId,
@@ -68,8 +70,9 @@ private:
   {
     char name[13];
     ReceivedLeagueContentType contentType;
-    GameData games[MAX_RECEIVED_SLATE_GAMES];
+    GameData games[MAX_STANDARD_SLATE_GAMES];
     uint8_t gameCount;
+    bool usesLargeSlateStorage;
     char tournamentId[49];
     char tournamentName[49];
     GolfLeaderboardRow golfers[MAX_RECEIVED_GOLFERS];
@@ -80,12 +83,18 @@ private:
   uint8_t currentLeagueIndex = 0;
   uint8_t currentGameIndex = 0;
   ReceivedLeague receivedLeagues[MAX_RECEIVED_LEAGUES] = {};
+  GameData largeSlateGames[MAX_LARGE_SLATE_GAMES] = {};
+  int8_t largeSlateOwnerIndex = -1;
+  const char *lastSlateError = nullptr;
   uint8_t receivedLeagueCount = 0;
   uint8_t currentReceivedLeagueIndex = 0;
   uint8_t currentReceivedGameIndex = 0;
 
   const LeagueData &getCurrentLeague();
   int8_t findReceivedLeague(const char *league);
+  GameData *gamesForReceivedLeague(uint8_t leagueIndex);
+  const GameData *gamesForReceivedLeague(uint8_t leagueIndex) const;
+  void releaseLargeSlateIfOwnedBy(uint8_t leagueIndex);
 };
 
 #endif

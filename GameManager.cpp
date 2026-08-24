@@ -14,6 +14,36 @@ void GameManager::clearReceivedContent()
   receivedLeagueCount = 0;
   currentReceivedLeagueIndex = 0;
   currentReceivedGameIndex = 0;
+  largeSlateOwnerIndex = -1;
+  lastSlateError = nullptr;
+}
+
+GameData *GameManager::gamesForReceivedLeague(uint8_t leagueIndex)
+{
+  return receivedLeagues[leagueIndex].usesLargeSlateStorage
+    ? largeSlateGames
+    : receivedLeagues[leagueIndex].games;
+}
+
+const GameData *GameManager::gamesForReceivedLeague(uint8_t leagueIndex) const
+{
+  return receivedLeagues[leagueIndex].usesLargeSlateStorage
+    ? largeSlateGames
+    : receivedLeagues[leagueIndex].games;
+}
+
+void GameManager::releaseLargeSlateIfOwnedBy(uint8_t leagueIndex)
+{
+  if (largeSlateOwnerIndex == static_cast<int8_t>(leagueIndex))
+  {
+    largeSlateOwnerIndex = -1;
+  }
+  receivedLeagues[leagueIndex].usesLargeSlateStorage = false;
+}
+
+const char *GameManager::getLastSlateError() const
+{
+  return lastSlateError == nullptr ? "unknown slate storage error" : lastSlateError;
 }
 
 /**
@@ -37,8 +67,9 @@ const GameData &GameManager::getCurrentGame()
 {
   if (receivedLeagueCount > 0)
   {
-    ReceivedLeague &league = receivedLeagues[currentReceivedLeagueIndex];
-    return league.games[currentReceivedGameIndex];
+    return gamesForReceivedLeague(currentReceivedLeagueIndex)[
+      currentReceivedGameIndex
+    ];
   }
 
   const LeagueData &league = getCurrentLeague();
@@ -95,20 +126,31 @@ bool GameManager::setReceivedSlate(
   uint8_t gameCount
 )
 {
-  if (gameCount == 0 || gameCount > MAX_RECEIVED_SLATE_GAMES)
+  lastSlateError = nullptr;
+  if (gameCount == 0 || gameCount > MAX_LARGE_SLATE_GAMES)
   {
+    lastSlateError = "slate game count exceeds 1..72";
     return false;
   }
 
   int8_t existingIndex = findReceivedLeague(league);
   if (existingIndex < 0 && receivedLeagueCount >= MAX_RECEIVED_LEAGUES)
   {
+    lastSlateError = "received league capacity reached";
     return false;
   }
 
   uint8_t targetIndex = existingIndex >= 0
     ? static_cast<uint8_t>(existingIndex)
     : receivedLeagueCount;
+  const bool needsLargeStorage = gameCount > MAX_STANDARD_SLATE_GAMES;
+  if (needsLargeStorage &&
+      largeSlateOwnerIndex >= 0 &&
+      largeSlateOwnerIndex != static_cast<int8_t>(targetIndex))
+  {
+    lastSlateError = "shared large-slate storage already owned by another league";
+    return false;
+  }
   const bool replacingActive = existingIndex >= 0 &&
     targetIndex == currentReceivedLeagueIndex;
   const uint8_t previousGameIndex = currentReceivedGameIndex;
@@ -119,15 +161,25 @@ bool GameManager::setReceivedSlate(
   {
     strlcpy(
       previousEventId,
-      receivedLeagues[targetIndex].games[previousGameIndex].eventId,
+      gamesForReceivedLeague(targetIndex)[previousGameIndex].eventId,
       sizeof(previousEventId)
     );
   }
   ReceivedLeague &target = receivedLeagues[targetIndex];
   strlcpy(target.name, league, sizeof(target.name));
+  GameData *targetGames = needsLargeStorage ? largeSlateGames : target.games;
   for (uint8_t index = 0; index < gameCount; index++)
   {
-    target.games[index] = games[index];
+    targetGames[index] = games[index];
+  }
+  if (needsLargeStorage)
+  {
+    largeSlateOwnerIndex = static_cast<int8_t>(targetIndex);
+    target.usesLargeSlateStorage = true;
+  }
+  else
+  {
+    releaseLargeSlateIfOwnedBy(targetIndex);
   }
   target.gameCount = gameCount;
   target.contentType = RECEIVED_TEAM_SPORT;
@@ -148,7 +200,7 @@ bool GameManager::setReceivedSlate(
     {
       for (uint8_t index = 0; index < gameCount; index++)
       {
-        if (strcmp(target.games[index].eventId, previousEventId) == 0)
+        if (strcmp(targetGames[index].eventId, previousEventId) == 0)
         {
           currentReceivedGameIndex = index;
           restoredByEventId = true;
@@ -191,6 +243,7 @@ bool GameManager::setReceivedGolfLeaderboard(
     targetIndex == currentReceivedLeagueIndex;
   const uint8_t previousPageIndex = currentReceivedGameIndex;
   ReceivedLeague &target = receivedLeagues[targetIndex];
+  releaseLargeSlateIfOwnedBy(targetIndex);
   strlcpy(target.name, league, sizeof(target.name));
   strlcpy(target.tournamentId, tournamentId, sizeof(target.tournamentId));
   strlcpy(target.tournamentName, tournamentName, sizeof(target.tournamentName));
@@ -233,6 +286,7 @@ bool GameManager::setReceivedFantasyMatchup(const FantasyMatchupData &matchup)
     ? static_cast<uint8_t>(existingIndex)
     : receivedLeagueCount;
   ReceivedLeague &target = receivedLeagues[targetIndex];
+  releaseLargeSlateIfOwnedBy(targetIndex);
   strlcpy(target.name, category, sizeof(target.name));
   target.contentType = RECEIVED_FANTASY;
   target.gameCount = 1;
@@ -258,12 +312,17 @@ bool GameManager::clearReceivedFantasyMatchup()
     return false;
   }
   uint8_t removed = static_cast<uint8_t>(index);
+  releaseLargeSlateIfOwnedBy(removed);
   for (uint8_t cursor = removed; cursor + 1 < receivedLeagueCount; cursor++)
   {
     receivedLeagues[cursor] = receivedLeagues[cursor + 1];
   }
   receivedLeagues[receivedLeagueCount - 1] = {};
   receivedLeagueCount--;
+  if (largeSlateOwnerIndex > static_cast<int8_t>(removed))
+  {
+    largeSlateOwnerIndex--;
+  }
   if (receivedLeagueCount == 0)
   {
     currentReceivedLeagueIndex = 0;

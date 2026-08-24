@@ -111,7 +111,7 @@ const uint8_t MAX_LEGACY_SLATE_GAMES = 4;
 bool slateTransferActive = false;
 char stagingSlateId[49] = "";
 char stagingLeague[13] = "";
-GameData stagingGames[GameManager::MAX_RECEIVED_SLATE_GAMES] = {};
+GameData stagingGames[GameManager::MAX_LARGE_SLATE_GAMES] = {};
 uint8_t stagingExpectedGames = 0;
 uint8_t stagingExpectedChunks = 0;
 uint8_t stagingReceivedGames = 0;
@@ -1350,7 +1350,7 @@ bool handleSlatePacket(const String &message)
 
   // Validate into owned temporary storage so a malformed slate never replaces
   // the active received slate.
-  GameData validatedGames[GameManager::MAX_RECEIVED_SLATE_GAMES] = {};
+  GameData validatedGames[MAX_LEGACY_SLATE_GAMES] = {};
   uint8_t index = 0;
   for (JsonVariantConst item : games)
   {
@@ -1365,7 +1365,7 @@ bool handleSlatePacket(const String &message)
 
   if (!gameManager.setReceivedSlate(league, validatedGames, index))
   {
-    rejectGamePacket("received league capacity reached");
+    rejectGamePacket(gameManager.getLastSlateError());
     return false;
   }
   markRealContentActivated();
@@ -1455,7 +1455,7 @@ bool handleSlateStartPacket(const String &message)
       !readRequiredText(packet, "slateId", 48, slateId) ||
       !totalGames.is<int>() || !totalChunks.is<int>() ||
       totalGames.as<int>() < 1 ||
-      totalGames.as<int>() > GameManager::MAX_RECEIVED_SLATE_GAMES ||
+      totalGames.as<int>() > GameManager::MAX_LARGE_SLATE_GAMES ||
       totalChunks.as<int>() < 1 ||
       totalChunks.as<int>() > totalGames.as<int>())
   {
@@ -1532,25 +1532,19 @@ bool handleSlateChunkPacket(const String &message)
     return false;
   }
 
-  GameData validatedGames[GameManager::MAX_RECEIVED_SLATE_GAMES] = {};
+  GameData validatedGame = {};
   uint8_t validatedCount = 0;
   for (JsonVariantConst item : games)
   {
+    validatedGame = {};
     if (!item.is<JsonObjectConst>() ||
-        !readValidatedGame(
-          item.as<JsonObjectConst>(),
-          validatedGames[validatedCount]
-        ))
+        !readValidatedGame(item.as<JsonObjectConst>(), validatedGame))
     {
       rejectGamePacket("malformed chunk game");
       return false;
     }
+    stagingGames[stagingReceivedGames + validatedCount] = validatedGame;
     validatedCount++;
-  }
-
-  for (uint8_t index = 0; index < validatedCount; index++)
-  {
-    stagingGames[stagingReceivedGames + index] = validatedGames[index];
   }
   stagingReceivedGames += validatedCount;
   stagingNextChunkIndex++;
@@ -1597,8 +1591,8 @@ bool handleSlateEndPacket(const String &message)
     stagingReceivedGames
   ))
   {
-    rejectGamePacket("received league capacity reached");
-    clearStagingSlate("league capacity reached");
+    rejectGamePacket(gameManager.getLastSlateError());
+    clearStagingSlate("active slate rejected");
     return false;
   }
   USBSerial.print("BLE slate transfer complete: id=");
@@ -1830,6 +1824,12 @@ void handleBluetoothCommand(const String &message)
       return;
     }
     authoritativeSyncSessionActive = true;
+    clearStagingSlate(slateTransferActive
+      ? "authoritative sync started"
+      : nullptr);
+    clearGolfStaging(golfTransferActive
+      ? "authoritative sync started"
+      : nullptr);
     gameManager.clearReceivedContent();
     fantasyAlertActive = false;
     syncLifecycleState = SYNC_IN_PROGRESS;

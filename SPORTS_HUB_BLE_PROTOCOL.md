@@ -99,7 +99,10 @@ Received-league storage and navigation:
 - A successful `slate_end` replaces only the matching league or appends it if it is new.
 - Live refresh sends a complete replacement only for the changed league. Team and PGA datasets coexist.
 - Replacing the active team league preserves the selected event by stable `id` when possible, otherwise it clamps the prior numeric game index.
-- Up to 8 received leagues are stored independently, with up to 72 games each.
+- Up to 8 received categories are stored independently. Team-sport slates of up
+  to 20 games use inline category storage; one active team-sport category may
+  use shared large-slate storage for 21 through 72 games. This is an internal
+  memory constraint only; the logical BLE slate limit remains 72 games.
 - Failed or incomplete transfers never alter any stored league.
 - Received leagues retain insertion order.
 - BOOT single-click and `NEXT_GAME` cycle games in the active received league.
