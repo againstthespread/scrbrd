@@ -50,6 +50,24 @@ const uint16_t COLOR_DARK_GRAY = 0x3186;
 const uint16_t COLOR_STATUS_BG = 0x03E0;
 const uint16_t COLOR_WARNING = 0xFD20;
 
+// Major regions for the physical 240x280 portrait canvas.
+const int16_t DISPLAY_WIDTH = 240;
+const int16_t DISPLAY_HEIGHT = 280;
+const int16_t SAFE_LEFT = 10;
+const int16_t SAFE_RIGHT = 230;
+const int16_t SAFE_TOP = 8;
+const int16_t SAFE_BOTTOM = 270;
+const int16_t HEADER_X = 10;
+const int16_t HEADER_Y = 8;
+const int16_t HEADER_WIDTH = 220;
+const int16_t HEADER_HEIGHT = 42;
+const int16_t TEAM_CARD_X = 10;
+const int16_t TEAM_CARD_Y = 62;
+const int16_t TEAM_CARD_WIDTH = 220;
+const int16_t TEAM_CARD_HEIGHT = 146;
+const int16_t CARD_INNER_LEFT = 20;
+const int16_t CARD_INNER_RIGHT = 220;
+
 // Production placeholder: replace this one constant when support email is set.
 const char SCRBRD_SUPPORT_EMAIL[] = "support@_____";
 
@@ -74,6 +92,7 @@ enum DeviceDisplayState : uint8_t
 const uint8_t BOOT_BUTTON_PIN = 0;
 const unsigned long BUTTON_DEBOUNCE_MS = 50;
 const unsigned long DOUBLE_CLICK_WINDOW_MS = 300;
+const unsigned long LONG_PRESS_DURATION_MS = 1000;
 const unsigned long FANTASY_ALERT_DURATION_MS = 7000;
 
 struct FantasyAlertData
@@ -93,9 +112,13 @@ BluetoothManager bluetoothManager;
 bool lastBootButtonReading = HIGH;
 bool stableBootButtonState = HIGH;
 bool bootButtonWasPressed = false;
+bool bootButtonLongPressHandled = false;
 unsigned long lastBootButtonChangeTime = 0;
+unsigned long bootButtonPressStartedAt = 0;
 uint8_t pendingClickCount = 0;
 unsigned long lastClickTime = 0;
+bool deviceStandby = false;
+bool fantasyAlertWokeDisplayFromStandby = false;
 bool lastDisplayedBluetoothConnected = false;
 SyncLifecycleState syncLifecycleState = SYNC_WAITING;
 DeviceDisplayState lastLoggedDisplayState = DISPLAY_UNKNOWN;
@@ -130,6 +153,148 @@ uint8_t stagingNextGolfChunkIndex = 0;
 unsigned long stagingGolfLastActivityTime = 0;
 
 
+void setDisplayBacklight(bool enabled)
+{
+  digitalWrite(LCD_BL, enabled ? HIGH : LOW);
+}
+
+
+void enterStandby()
+{
+  deviceStandby = true;
+  fantasyAlertWokeDisplayFromStandby = false;
+  setDisplayBacklight(false);
+  USBSerial.println("Standby enabled; display backlight off.");
+}
+
+
+void exitStandby()
+{
+  deviceStandby = false;
+  fantasyAlertWokeDisplayFromStandby = false;
+  setDisplayBacklight(true);
+  USBSerial.println("Standby disabled; display backlight on.");
+  if (fantasyAlertActive)
+  {
+    drawFantasyAlert();
+  }
+  else
+  {
+    drawCurrentScreen();
+  }
+}
+
+
+void restoreStandbyAfterFantasyAlert()
+{
+  if (!deviceStandby || !fantasyAlertWokeDisplayFromStandby)
+  {
+    fantasyAlertWokeDisplayFromStandby = false;
+    return;
+  }
+  fantasyAlertWokeDisplayFromStandby = false;
+  setDisplayBacklight(false);
+  USBSerial.println("Fantasy alert ended; standby backlight restored.");
+}
+
+
+uint16_t measuredTextWidth(const String &text, uint8_t textSize)
+{
+  int16_t boundsX;
+  int16_t boundsY;
+  uint16_t width;
+  uint16_t height;
+  gfx->setTextSize(textSize);
+  gfx->getTextBounds(text, 0, 0, &boundsX, &boundsY, &width, &height);
+  return width;
+}
+
+
+String truncateTextToWidth(String text, uint16_t maximumWidth, uint8_t textSize)
+{
+  text.trim();
+  if (measuredTextWidth(text, textSize) <= maximumWidth)
+  {
+    return text;
+  }
+  const String ellipsis = "...";
+  if (measuredTextWidth(ellipsis, textSize) > maximumWidth)
+  {
+    return "";
+  }
+  while (text.length() > 0)
+  {
+    size_t removeAt = text.length() - 1;
+    while (removeAt > 0 &&
+           (static_cast<uint8_t>(text[removeAt]) & 0xC0) == 0x80)
+    {
+      removeAt--;
+    }
+    text.remove(removeAt);
+    if (measuredTextWidth(text + ellipsis, textSize) <= maximumWidth)
+    {
+      return text + ellipsis;
+    }
+  }
+  return ellipsis;
+}
+
+
+String fitTextToWidth(
+  const String &text,
+  uint16_t maximumWidth,
+  uint8_t preferredSize,
+  uint8_t minimumSize,
+  uint8_t &selectedSize
+)
+{
+  selectedSize = preferredSize;
+  while (selectedSize > minimumSize &&
+         measuredTextWidth(text, selectedSize) > maximumWidth)
+  {
+    selectedSize--;
+  }
+  return truncateTextToWidth(text, maximumWidth, selectedSize);
+}
+
+
+void drawTextCenteredInRegion(
+  const String &text,
+  int16_t left,
+  int16_t right,
+  int16_t cursorY,
+  uint8_t textSize,
+  uint16_t color
+)
+{
+  const uint16_t maximumWidth = right - left;
+  const String fitted = truncateTextToWidth(text, maximumWidth, textSize);
+  const uint16_t width = measuredTextWidth(fitted, textSize);
+  gfx->setTextColor(color);
+  gfx->setTextSize(textSize);
+  gfx->setCursor(left + (maximumWidth - width) / 2, cursorY);
+  gfx->print(fitted);
+}
+
+
+void drawTextRightAligned(
+  const String &text,
+  int16_t right,
+  int16_t left,
+  int16_t cursorY,
+  uint8_t textSize,
+  uint16_t color
+)
+{
+  const String fitted = truncateTextToWidth(text, right - left, textSize);
+  const uint16_t width = measuredTextWidth(fitted, textSize);
+  gfx->setTextColor(color);
+  gfx->setTextSize(textSize);
+  gfx->setCursor(right - width, cursorY);
+  gfx->print(fitted);
+}
+
+
 /**
  * Prepare the LCD and backlight.
  */
@@ -142,7 +307,7 @@ void initializeDisplay()
   }
 
   pinMode(LCD_BL, OUTPUT);
-  digitalWrite(LCD_BL, HIGH);
+  setDisplayBacklight(true);
 
   gfx->fillScreen(BLACK);
 
@@ -167,10 +332,7 @@ void drawStateShell()
     COLOR_LIGHT_BLUE
   );
 
-  gfx->setTextColor(CYAN);
-  gfx->setTextSize(3);
-  gfx->setCursor(63, 42);
-  gfx->println("SCRBRD");
+  drawTextCenteredInRegion("SCRBRD", SAFE_LEFT, SAFE_RIGHT, 42, 3, CYAN);
   drawBluetoothIcon(207, 20);
 }
 
@@ -178,85 +340,68 @@ void drawStateShell()
 void drawConnectScreen()
 {
   drawStateShell();
-  gfx->setTextColor(WHITE);
-  gfx->setTextSize(2);
-  gfx->setCursor(36, 106);
-  gfx->println("Ready for scores");
-  gfx->setTextColor(COLOR_GRAY);
-  gfx->setTextSize(1);
-  gfx->setCursor(59, 160);
-  gfx->println("Open the SCRBRD app");
-  gfx->setCursor(91, 176);
-  gfx->println("to connect");
+  drawTextCenteredInRegion(
+    "Ready for scores", SAFE_LEFT, SAFE_RIGHT, 106, 2, WHITE
+  );
+  drawTextCenteredInRegion(
+    "Open the SCRBRD app", SAFE_LEFT, SAFE_RIGHT, 160, 1, COLOR_GRAY
+  );
+  drawTextCenteredInRegion(
+    "to connect", SAFE_LEFT, SAFE_RIGHT, 176, 1, COLOR_GRAY
+  );
 }
 
 
 void drawConnectedLoadingScreen()
 {
   drawStateShell();
-  gfx->setTextColor(WHITE);
-  gfx->setTextSize(2);
-  gfx->setCursor(69, 108);
-  gfx->println("Connected");
-  gfx->setTextColor(CYAN);
-  gfx->setTextSize(1);
-  gfx->setCursor(49, 162);
-  gfx->println("Loading today's games...");
+  drawTextCenteredInRegion("Connected", SAFE_LEFT, SAFE_RIGHT, 108, 2, WHITE);
+  drawTextCenteredInRegion(
+    "Loading today's games...", SAFE_LEFT, SAFE_RIGHT, 162, 1, CYAN
+  );
 }
 
 
 void drawEmptyTodayScreen()
 {
   drawStateShell();
-  gfx->setTextColor(WHITE);
-  gfx->setTextSize(2);
-  gfx->setCursor(65, 92);
-  gfx->println("Expecting");
-  gfx->setCursor(59, 115);
-  gfx->println("something?");
-  gfx->setTextColor(COLOR_GRAY);
-  gfx->setTextSize(1);
-  gfx->setCursor(43, 151);
-  gfx->println("Request support for your");
-  gfx->setCursor(64, 165);
-  gfx->println("favorite league at");
-  gfx->setTextColor(CYAN);
-  gfx->setCursor(73, 190);
-  gfx->println(SCRBRD_SUPPORT_EMAIL);
+  drawTextCenteredInRegion("Expecting", SAFE_LEFT, SAFE_RIGHT, 92, 2, WHITE);
+  drawTextCenteredInRegion("something?", SAFE_LEFT, SAFE_RIGHT, 115, 2, WHITE);
+  drawTextCenteredInRegion(
+    "Request support for your", SAFE_LEFT, SAFE_RIGHT, 151, 1, COLOR_GRAY
+  );
+  drawTextCenteredInRegion(
+    "favorite league at", SAFE_LEFT, SAFE_RIGHT, 165, 1, COLOR_GRAY
+  );
+  drawTextCenteredInRegion(
+    SCRBRD_SUPPORT_EMAIL, SAFE_LEFT, SAFE_RIGHT, 190, 1, CYAN
+  );
 }
 
 
 /**
  * Draw text with size 1 if the team name is long.
  */
-void drawTeamName(const char *teamName, int16_t x, int16_t y)
+void drawTeamName(const char *teamName, int16_t y)
 {
-  uint8_t nameLength = strlen(teamName);
-  uint8_t textSize = 2;
-  uint8_t maxChars = 11;
-
-  if (nameLength > maxChars)
+  const int16_t teamLeft = 22;
+  const int16_t teamRight = 154;
+  uint8_t textSize;
+  String fitted = fitTextToWidth(
+    teamName,
+    teamRight - teamLeft,
+    2,
+    1,
+    textSize
+  );
+  if (textSize == 1)
   {
-    textSize = 1;
-    maxChars = 21;
     y += 5;
   }
-
   gfx->setTextColor(WHITE);
   gfx->setTextSize(textSize);
-  gfx->setCursor(x, y);
-
-  for (uint8_t i = 0; i < nameLength && i < maxChars; i++)
-  {
-    if (i == maxChars - 1 && nameLength > maxChars)
-    {
-      gfx->print(".");
-    }
-    else
-    {
-      gfx->print(teamName[i]);
-    }
-  }
+  gfx->setCursor(teamLeft, y);
+  gfx->print(fitted);
 }
 
 
@@ -265,21 +410,7 @@ void drawTeamName(const char *teamName, int16_t x, int16_t y)
  */
 void drawScore(uint8_t score, uint16_t color, int16_t y)
 {
-  int16_t x = 183;
-
-  if (score >= 100)
-  {
-    x = 165;
-  }
-  else if (score < 10)
-  {
-    x = 201;
-  }
-
-  gfx->setTextColor(color);
-  gfx->setTextSize(3);
-  gfx->setCursor(x, y);
-  gfx->println(score);
+  drawTextRightAligned(String(score), 216, 160, y, 3, color);
 }
 
 
@@ -311,26 +442,30 @@ void drawBluetoothIcon(int16_t x, int16_t y)
  */
 void drawHeader()
 {
-  gfx->fillRoundRect(10, 8, 220, 42, 8, COLOR_DARK_BLUE);
-  gfx->drawRoundRect(10, 8, 220, 42, 8, COLOR_LIGHT_BLUE);
+  gfx->fillRoundRect(
+    HEADER_X, HEADER_Y, HEADER_WIDTH, HEADER_HEIGHT, 8, COLOR_DARK_BLUE
+  );
+  gfx->drawRoundRect(
+    HEADER_X, HEADER_Y, HEADER_WIDTH, HEADER_HEIGHT, 8, COLOR_LIGHT_BLUE
+  );
 
   gfx->setTextColor(COLOR_GRAY);
   gfx->setTextSize(1);
   gfx->setCursor(18, 14);
   gfx->println("SCRBRD");
 
+  uint8_t leagueSize;
+  String league = fitTextToWidth(
+    gameManager.getCurrentLeagueName(), 132, 2, 1, leagueSize
+  );
   gfx->setTextColor(CYAN);
-  gfx->setTextSize(2);
-  gfx->setCursor(18, 29);
-  gfx->println(gameManager.getCurrentLeagueName());
+  gfx->setTextSize(leagueSize);
+  gfx->setCursor(18, leagueSize == 2 ? 29 : 34);
+  gfx->print(league);
 
-  gfx->setTextColor(WHITE);
-  gfx->setTextSize(1);
-  gfx->setCursor(156, 33);
-  gfx->print("L ");
-  gfx->print(gameManager.getCurrentLeagueNumber());
-  gfx->print("/");
-  gfx->println(gameManager.getLeagueCount());
+  String leagueCount = "L " + String(gameManager.getCurrentLeagueNumber()) +
+    "/" + String(gameManager.getLeagueCount());
+  drawTextRightAligned(leagueCount, 199, 150, 33, 1, WHITE);
 
   drawBluetoothIcon(208, 18);
 }
@@ -401,26 +536,24 @@ void drawFootballSituation(const GameData &game)
   gfx->fillCircle(17, possessionY, 3, YELLOW);
   gfx->drawLine(14, possessionY, 20, possessionY, YELLOW);
 
-  gfx->setTextColor(CYAN);
-  gfx->setTextSize(1);
-  gfx->setCursor(94, 190);
-  gfx->print(game.down);
+  String detail = String(game.down);
   switch (game.down)
   {
-    case 1: gfx->print("st"); break;
-    case 2: gfx->print("nd"); break;
-    case 3: gfx->print("rd"); break;
-    default: gfx->print("th"); break;
+    case 1: detail += "st"; break;
+    case 2: detail += "nd"; break;
+    case 3: detail += "rd"; break;
+    default: detail += "th"; break;
   }
-  gfx->print(" & ");
+  detail += " & ";
   if (game.goalToGo)
   {
-    gfx->println("Goal");
+    detail += "Goal";
   }
   else
   {
-    gfx->println(game.distance);
+    detail += String(game.distance);
   }
+  drawTextCenteredInRegion(detail, 72, 168, 190, 1, CYAN);
 }
 
 
@@ -430,51 +563,68 @@ void drawFootballSituation(const GameData &game)
 void drawScoreboard(const GameData &game)
 {
   // Scoreboard card
-  gfx->fillRoundRect(10, 62, 220, 146, 10, COLOR_DARK_GRAY);
-  gfx->drawRoundRect(10, 62, 220, 146, 10, COLOR_LIGHT_BLUE);
+  gfx->fillRoundRect(
+    TEAM_CARD_X, TEAM_CARD_Y, TEAM_CARD_WIDTH, TEAM_CARD_HEIGHT,
+    10, COLOR_DARK_GRAY
+  );
+  gfx->drawRoundRect(
+    TEAM_CARD_X, TEAM_CARD_Y, TEAM_CARD_WIDTH, TEAM_CARD_HEIGHT,
+    10, COLOR_LIGHT_BLUE
+  );
 
   // Game position
+  String gamePosition = "Game " + String(gameManager.getCurrentGameNumber()) +
+    " of " + String(gameManager.getCurrentGameCount());
+  if (measuredTextWidth(gamePosition, 1) > 128)
+  {
+    gamePosition = "G " + String(gameManager.getCurrentGameNumber()) + "/" +
+      String(gameManager.getCurrentGameCount());
+  }
   gfx->setTextColor(COLOR_GRAY);
   gfx->setTextSize(1);
   gfx->setCursor(22, 75);
-  gfx->print("Game ");
-  gfx->print(gameManager.getCurrentGameNumber());
-  gfx->print(" of ");
-  gfx->println(gameManager.getCurrentGameCount());
+  gfx->print(truncateTextToWidth(gamePosition, 128, 1));
 
   // Status badge
-  gfx->fillRoundRect(157, 71, 54, 18, 5, COLOR_STATUS_BG);
-  gfx->setTextColor(BLACK);
-  gfx->setTextSize(1);
-  gfx->setCursor(167, 77);
-  gfx->println(game.status);
+  const uint16_t statusTextWidth = measuredTextWidth(game.status, 1);
+  const int16_t statusWidth = max(static_cast<int16_t>(54),
+    static_cast<int16_t>(statusTextWidth + 14));
+  const int16_t statusRight = CARD_INNER_RIGHT;
+  const int16_t statusLeft = statusRight - statusWidth;
+  gfx->fillRoundRect(statusLeft, 71, statusWidth, 18, 5, COLOR_STATUS_BG);
+  drawTextCenteredInRegion(
+    game.status, statusLeft, statusRight, 77, 1, BLACK
+  );
 
   // Divider
   gfx->drawFastHLine(20, 97, 200, COLOR_GRAY);
 
   // Teams
-  drawTeamName(game.awayTeam, 22, 112);
-  drawTeamName(game.homeTeam, 22, 144);
+  drawTeamName(game.awayTeam, 112);
+  drawTeamName(game.homeTeam, 144);
 
   // Scores
   drawScore(game.awayScore, GREEN, 107);
   drawScore(game.homeScore, WHITE, 139);
 
   // Game clock
-  gfx->setTextColor(YELLOW);
-  gfx->setTextSize(1);
-  gfx->setCursor(94, 176);
-  gfx->println(game.clock);
+  const bool showsBaseballSituation =
+    strcmp(gameManager.getCurrentLeagueName(), "MLB") == 0 &&
+    strcmp(game.status, "LIVE") == 0;
+  const bool showsFootballSituation =
+    (strcmp(gameManager.getCurrentLeagueName(), "NFL") == 0 ||
+     strcmp(gameManager.getCurrentLeagueName(), "NCAAF") == 0) &&
+    strcmp(game.status, "LIVE") == 0 && game.hasFootballState;
+  const int16_t clockRight = showsBaseballSituation ? 168 : CARD_INNER_RIGHT;
+  drawTextCenteredInRegion(
+    game.clock, CARD_INNER_LEFT, clockRight, 176, 1, YELLOW
+  );
 
-  if (strcmp(gameManager.getCurrentLeagueName(), "MLB") == 0 &&
-      strcmp(game.status, "LIVE") == 0)
+  if (showsBaseballSituation)
   {
     drawBaseballSituation(game);
   }
-  else if ((strcmp(gameManager.getCurrentLeagueName(), "NFL") == 0 ||
-            strcmp(gameManager.getCurrentLeagueName(), "NCAAF") == 0) &&
-           strcmp(game.status, "LIVE") == 0 &&
-           game.hasFootballState)
+  else if (showsFootballSituation)
   {
     drawFootballSituation(game);
   }
@@ -489,12 +639,9 @@ void drawGolfLeaderboard()
   gfx->setTextColor(CYAN);
   gfx->setTextSize(1);
   gfx->setCursor(18, 68);
-  String tournament = gameManager.getCurrentTournamentName();
-  if (tournament.length() > 28)
-  {
-    tournament = tournament.substring(0, 27) + "~";
-  }
-  gfx->println(tournament);
+  gfx->print(truncateTextToWidth(
+    gameManager.getCurrentTournamentName(), 204, 1
+  ));
   gfx->drawFastHLine(18, 82, 204, COLOR_GRAY);
 
   const GolfLeaderboardRow *rows = gameManager.getCurrentGolfPageRows();
@@ -503,33 +650,25 @@ void drawGolfLeaderboard()
   {
     int16_t y = 91 + index * 31;
     gfx->setTextColor(WHITE);
+    gfx->setTextSize(1);
     gfx->setCursor(18, y);
-    gfx->print(rows[index].rank);
+    gfx->print(truncateTextToWidth(rows[index].rank, 20, 1));
     gfx->setCursor(43, y);
-    String name = rows[index].name;
-    if (name.length() > 18)
-    {
-      name = name.substring(0, 17) + "~";
-    }
-    gfx->print(name);
-    gfx->setTextColor(YELLOW);
-    gfx->setCursor(190, y);
-    gfx->println(rows[index].score);
+    gfx->print(truncateTextToWidth(rows[index].name, 137, 1));
+    drawTextRightAligned(rows[index].score, 220, 184, y, 1, YELLOW);
 
     if (rows[index].detail[0] != '\0')
     {
       gfx->setTextColor(COLOR_GRAY);
+      gfx->setTextSize(1);
       gfx->setCursor(43, y + 11);
-      gfx->println(rows[index].detail);
+      gfx->print(truncateTextToWidth(rows[index].detail, 137, 1));
     }
   }
 
-  gfx->setTextColor(COLOR_GRAY);
-  gfx->setCursor(164, 251);
-  gfx->print("Page ");
-  gfx->print(gameManager.getCurrentGolfPageNumber());
-  gfx->print("/");
-  gfx->println(gameManager.getCurrentGolfPageCount());
+  String page = "Page " + String(gameManager.getCurrentGolfPageNumber()) + "/" +
+    String(gameManager.getCurrentGolfPageCount());
+  drawTextRightAligned(page, 220, 150, 251, 1, COLOR_GRAY);
 }
 
 
@@ -551,93 +690,40 @@ void drawFantasyAlert()
   gfx->fillScreen(COLOR_NAVY);
   gfx->drawRoundRect(8, 8, 224, 264, 12, COLOR_LIGHT_BLUE);
 
-  gfx->setTextColor(CYAN);
-  gfx->setTextSize(2);
-  gfx->setCursor(76, 22);
-  gfx->println("FANTASY");
+  drawTextCenteredInRegion("FANTASY", SAFE_LEFT, SAFE_RIGHT, 22, 2, CYAN);
   drawBluetoothIcon(208, 18);
 
   String player = fantasyAlert.player;
   player.toUpperCase();
-  if (player.length() > 20)
-  {
-    player = player.substring(0, 19) + "~";
-  }
-  gfx->setTextColor(WHITE);
-  gfx->setTextSize(2);
-  gfx->setCursor(16, 68);
-  gfx->println(player);
+  uint8_t playerSize;
+  player = fitTextToWidth(player, 204, 2, 1, playerSize);
+  drawTextCenteredInRegion(
+    player, 18, 222, playerSize == 2 ? 68 : 73, playerSize, WHITE
+  );
 
   if (fantasyAlert.headline[0] != '\0')
   {
     String headline = fantasyAlert.headline;
     headline.toUpperCase();
-    gfx->setTextColor(YELLOW);
-    gfx->setTextSize(1);
-    gfx->setCursor(18, 105);
-    gfx->println(headline);
+    drawTextCenteredInRegion(headline, 18, 222, 105, 1, YELLOW);
   }
 
   gfx->fillRoundRect(18, 132, 204, 62, 10, COLOR_DARK_BLUE);
-  gfx->setTextColor(GREEN);
-  gfx->setTextSize(3);
-  gfx->setCursor(34, 151);
-  gfx->print(formatFantasyNumber(fantasyAlert.points, true));
-  gfx->println(" PTS");
+  String points = formatFantasyNumber(fantasyAlert.points, true) + " PTS";
+  uint8_t pointsSize;
+  points = fitTextToWidth(points, 180, 3, 1, pointsSize);
+  drawTextCenteredInRegion(points, 30, 210, 151, pointsSize, GREEN);
 
   String user = fantasyAlert.userName;
   String opponent = fantasyAlert.opponentName;
   user.toUpperCase();
   opponent.toUpperCase();
-  gfx->setTextColor(WHITE);
-  gfx->setTextSize(1);
-  gfx->setCursor(14, 226);
-  gfx->print(user);
-  gfx->print(" ");
-  gfx->print(formatFantasyNumber(fantasyAlert.userScore, false));
-  gfx->setTextColor(COLOR_GRAY);
-  gfx->print("  *  ");
-  gfx->setTextColor(WHITE);
-  gfx->print(opponent);
-  gfx->print(" ");
-  gfx->println(formatFantasyNumber(fantasyAlert.opponentScore, false));
-}
-
-
-uint16_t measuredTextWidth(const String &text)
-{
-  int16_t boundsX;
-  int16_t boundsY;
-  uint16_t width;
-  uint16_t height;
-  gfx->getTextBounds(text, 0, 0, &boundsX, &boundsY, &width, &height);
-  return width;
-}
-
-
-String fitFantasyTextToWidth(String text, uint16_t maximumWidth)
-{
-  text.trim();
-  if (measuredTextWidth(text) <= maximumWidth)
-  {
-    return text;
-  }
-  const String ellipsis = "...";
-  while (text.length() > 0)
-  {
-    size_t removeAt = text.length() - 1;
-    while (removeAt > 0 &&
-           (static_cast<uint8_t>(text[removeAt]) & 0xC0) == 0x80)
-    {
-      removeAt--;
-    }
-    text.remove(removeAt);
-    if (measuredTextWidth(text + ellipsis) <= maximumWidth)
-    {
-      return text + ellipsis;
-    }
-  }
-  return "";
+  String userLine = user + " " + formatFantasyNumber(fantasyAlert.userScore, false);
+  String opponentLine = opponent + " " +
+    formatFantasyNumber(fantasyAlert.opponentScore, false);
+  drawTextCenteredInRegion(userLine, 14, 116, 226, 1, WHITE);
+  drawTextCenteredInRegion("*", 116, 124, 226, 1, COLOR_GRAY);
+  drawTextCenteredInRegion(opponentLine, 124, 226, 226, 1, WHITE);
 }
 
 
@@ -652,14 +738,15 @@ void drawFantasyMatchupScore(float score, int16_t baselineY, uint16_t color)
   const int16_t scoreRight = 220;
   const uint16_t scoreColumnWidth = 64;
   String formatted = formatFantasyMatchupScore(score);
-  gfx->setTextSize(2);
-  uint16_t width = measuredTextWidth(formatted);
+  uint16_t width = measuredTextWidth(formatted, 2);
+  uint8_t textSize = 2;
   if (width > scoreColumnWidth)
   {
-    gfx->setTextSize(1);
-    width = measuredTextWidth(formatted);
+    textSize = 1;
+    width = measuredTextWidth(formatted, textSize);
   }
   gfx->setTextColor(color);
+  gfx->setTextSize(textSize);
   gfx->setCursor(scoreRight - width, baselineY);
   gfx->println(formatted);
 }
@@ -678,7 +765,7 @@ void drawFantasyMatchup()
   gfx->setTextColor(COLOR_GRAY);
   gfx->setTextSize(1);
   gfx->setCursor(20, 73);
-  gfx->println(fitFantasyTextToWidth(matchup->leagueName, 200));
+  gfx->print(truncateTextToWidth(matchup->leagueName, 200, 1));
   gfx->drawFastHLine(20, 90, 200, COLOR_GRAY);
 
   String user = matchup->userName;
@@ -688,26 +775,28 @@ void drawFantasyMatchup()
 
   // Persistent Fantasy-only layout: x=20..148 is reserved for team names,
   // while x=156..220 is a dedicated, right-aligned score column.
-  gfx->setTextSize(1);
+  uint8_t userSize;
+  String fittedUser = fitTextToWidth(user, 128, 2, 1, userSize);
   gfx->setTextColor(WHITE);
-  gfx->setCursor(20, 112);
-  gfx->println(fitFantasyTextToWidth(user, 128));
+  gfx->setTextSize(userSize);
+  gfx->setCursor(20, userSize == 2 ? 105 : 112);
+  gfx->print(fittedUser);
   drawFantasyMatchupScore(matchup->userScore, 105, GREEN);
 
   gfx->drawFastHLine(20, 137, 200, COLOR_DARK_BLUE);
-  gfx->setTextSize(1);
+  uint8_t opponentSize;
+  String fittedOpponent = fitTextToWidth(opponent, 128, 2, 1, opponentSize);
   gfx->setTextColor(WHITE);
-  gfx->setCursor(20, 159);
-  gfx->println(fitFantasyTextToWidth(opponent, 128));
+  gfx->setTextSize(opponentSize);
+  gfx->setCursor(20, opponentSize == 2 ? 152 : 159);
+  gfx->print(fittedOpponent);
   drawFantasyMatchupScore(matchup->opponentScore, 152, YELLOW);
 
   gfx->drawFastHLine(20, 190, 200, COLOR_GRAY);
   gfx->setTextColor(CYAN);
   gfx->setTextSize(1);
   String footer = "WEEK " + String(matchup->week) + "  *  " + matchup->status;
-  uint16_t footerWidth = measuredTextWidth(footer);
-  gfx->setCursor((240 - footerWidth) / 2, 211);
-  gfx->println(footer);
+  drawTextCenteredInRegion(footer, 20, 220, 211, 1, CYAN);
 }
 
 
@@ -736,11 +825,10 @@ void drawDashboard()
 
 void drawUpdatesPausedWarning()
 {
-  gfx->fillRoundRect(103, 11, 96, 14, 4, COLOR_DARK_BLUE);
-  gfx->setTextColor(COLOR_WARNING);
-  gfx->setTextSize(1);
-  gfx->setCursor(108, 15);
-  gfx->println("UPDATES PAUSED");
+  gfx->fillRoundRect(76, 11, 124, 14, 4, COLOR_DARK_BLUE);
+  drawTextCenteredInRegion(
+    "UPDATES PAUSED", 78, 198, 15, 1, COLOR_WARNING
+  );
 }
 
 
@@ -779,7 +867,7 @@ const char *displayStateDiagnostic(DeviceDisplayState state)
 
 void drawCurrentScreen()
 {
-  if (fantasyAlertActive)
+  if (fantasyAlertActive || deviceStandby)
   {
     return;
   }
@@ -822,8 +910,16 @@ void expireFantasyAlertIfNeeded()
     return;
   }
   fantasyAlertActive = false;
-  USBSerial.println("Fantasy alert expired; restoring current screen.");
-  drawCurrentScreen();
+  if (deviceStandby)
+  {
+    USBSerial.println("Fantasy alert expired while in standby.");
+    restoreStandbyAfterFantasyAlert();
+  }
+  else
+  {
+    USBSerial.println("Fantasy alert expired; restoring current screen.");
+    drawCurrentScreen();
+  }
 }
 
 
@@ -1184,6 +1280,12 @@ bool handleFantasyAlertPacket(const String &message)
   fantasyAlert = next;
   fantasyAlertActive = true;
   fantasyAlertStartedAt = millis();
+  fantasyAlertWokeDisplayFromStandby = deviceStandby;
+  if (fantasyAlertWokeDisplayFromStandby)
+  {
+    setDisplayBacklight(true);
+    USBSerial.println("Fantasy alert temporarily woke standby display.");
+  }
   USBSerial.print("Fantasy alert displayed: ");
   USBSerial.println(fantasyAlert.player);
   drawFantasyAlert();
@@ -1832,6 +1934,7 @@ void handleBluetoothCommand(const String &message)
       : nullptr);
     gameManager.clearReceivedContent();
     fantasyAlertActive = false;
+    restoreStandbyAfterFantasyAlert();
     syncLifecycleState = SYNC_IN_PROGRESS;
     drawCurrentScreen();
     return;
@@ -2047,12 +2150,33 @@ void handleBootButton()
 
   if ((millis() - lastBootButtonChangeTime) < BUTTON_DEBOUNCE_MS)
   {
-    handlePendingClick();
+    if (currentReading == HIGH)
+    {
+      handlePendingClick();
+    }
     return;
   }
 
   if (currentReading == stableBootButtonState)
   {
+    if (stableBootButtonState == LOW && bootButtonWasPressed)
+    {
+      if (!bootButtonLongPressHandled &&
+          millis() - bootButtonPressStartedAt >= LONG_PRESS_DURATION_MS)
+      {
+        bootButtonLongPressHandled = true;
+        pendingClickCount = 0;
+        if (deviceStandby)
+        {
+          exitStandby();
+        }
+        else
+        {
+          enterStandby();
+        }
+      }
+      return;
+    }
     handlePendingClick();
     return;
   }
@@ -2062,14 +2186,19 @@ void handleBootButton()
   if (stableBootButtonState == LOW)
   {
     bootButtonWasPressed = true;
-    handlePendingClick();
+    bootButtonLongPressHandled = false;
+    bootButtonPressStartedAt = millis();
     return;
   }
 
   if (bootButtonWasPressed)
   {
     bootButtonWasPressed = false;
-    countBootButtonClick();
+    if (!bootButtonLongPressHandled)
+    {
+      countBootButtonClick();
+    }
+    bootButtonLongPressHandled = false;
   }
 
   handlePendingClick();
