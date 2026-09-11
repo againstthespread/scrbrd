@@ -2251,6 +2251,11 @@ void setup()
   USBSerial.begin(115200);
   USBSerial.println("Starting SCRBRD...");
 
+  setCpuFrequencyMhz(160);
+  USBSerial.print("CPU frequency: ");
+  USBSerial.print(getCpuFrequencyMhz());
+  USBSerial.println(" MHz");
+
   pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
   lastBootButtonReading = digitalRead(BOOT_BUTTON_PIN);
   stableBootButtonState = lastBootButtonReading;
@@ -2269,4 +2274,5 @@ void loop()
 {
   handleBluetoothMessages();
   handleBootButton();
+  delay(10);
 }
