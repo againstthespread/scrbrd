@@ -123,6 +123,11 @@ bool lastDisplayedBluetoothConnected = false;
 SyncLifecycleState syncLifecycleState = SYNC_WAITING;
 DeviceDisplayState lastLoggedDisplayState = DISPLAY_UNKNOWN;
 FantasyAlertData fantasyAlert = {};
+// Waiting alerts only; the active alert has its own storage. Mobile owns priority.
+const uint8_t FANTASY_ALERT_QUEUE_CAPACITY = 16;
+FantasyAlertData fantasyAlertQueue[FANTASY_ALERT_QUEUE_CAPACITY] = {};
+uint8_t fantasyAlertQueueHead = 0;
+uint8_t fantasyAlertQueueCount = 0;
 bool fantasyAlertActive = false;
 bool authoritativeSyncSessionActive = false;
 unsigned long fantasyAlertStartedAt = 0;
@@ -902,26 +907,75 @@ void drawCurrentScreen()
 }
 
 
-void expireFantasyAlertIfNeeded()
+void startFantasyAlert(const FantasyAlertData &next)
 {
-  if (!fantasyAlertActive ||
-      millis() - fantasyAlertStartedAt < FANTASY_ALERT_DURATION_MS)
+  fantasyAlert = next;
+  fantasyAlertActive = true;
+  fantasyAlertStartedAt = millis();
+  if (deviceStandby && !fantasyAlertWokeDisplayFromStandby)
   {
+    fantasyAlertWokeDisplayFromStandby = true;
+    setDisplayBacklight(true);
+    USBSerial.println("Fantasy alerts temporarily woke standby display.");
+  }
+  USBSerial.print("Fantasy alert displayed: ");
+  USBSerial.println(fantasyAlert.player);
+  drawFantasyAlert();
+}
+
+
+bool enqueueFantasyAlert(const FantasyAlertData &next)
+{
+  if (!fantasyAlertActive)
+  {
+    startFantasyAlert(next);
+    return true;
+  }
+  if (fantasyAlertQueueCount == FANTASY_ALERT_QUEUE_CAPACITY)
+  {
+    USBSerial.println("Fantasy alert queue full; newest alert rejected.");
+    return false;
+  }
+  const uint8_t tail =
+    (fantasyAlertQueueHead + fantasyAlertQueueCount) % FANTASY_ALERT_QUEUE_CAPACITY;
+  fantasyAlertQueue[tail] = next;
+  ++fantasyAlertQueueCount;
+  USBSerial.print("Fantasy alert queued: ");
+  USBSerial.println(next.player);
+  return true;
+}
+
+
+void finishFantasyAlert()
+{
+  if (fantasyAlertQueueCount > 0)
+  {
+    const uint8_t head = fantasyAlertQueueHead;
+    fantasyAlertQueueHead = (head + 1) % FANTASY_ALERT_QUEUE_CAPACITY;
+    --fantasyAlertQueueCount;
+    startFantasyAlert(fantasyAlertQueue[head]);
     return;
   }
   fantasyAlertActive = false;
   if (deviceStandby)
   {
-    USBSerial.println("Fantasy alert expired while in standby.");
     restoreStandbyAfterFantasyAlert();
   }
   else
   {
-    USBSerial.println("Fantasy alert expired; restoring current screen.");
     drawCurrentScreen();
   }
 }
 
+
+void expireFantasyAlertIfNeeded()
+{
+  if (fantasyAlertActive &&
+      millis() - fantasyAlertStartedAt >= FANTASY_ALERT_DURATION_MS)
+  {
+    finishFantasyAlert();
+  }
+}
 
 void markRealContentActivated()
 {
@@ -1276,20 +1330,7 @@ bool handleFantasyAlertPacket(const String &message)
   next.userScore = userScore;
   next.opponentScore = opponentScore;
 
-  // V1 is newest-wins: replace any visible alert and restart its lifetime.
-  fantasyAlert = next;
-  fantasyAlertActive = true;
-  fantasyAlertStartedAt = millis();
-  fantasyAlertWokeDisplayFromStandby = deviceStandby;
-  if (fantasyAlertWokeDisplayFromStandby)
-  {
-    setDisplayBacklight(true);
-    USBSerial.println("Fantasy alert temporarily woke standby display.");
-  }
-  USBSerial.print("Fantasy alert displayed: ");
-  USBSerial.println(fantasyAlert.player);
-  drawFantasyAlert();
-  return true;
+  return enqueueFantasyAlert(next);
 }
 
 
@@ -1933,9 +1974,9 @@ void handleBluetoothCommand(const String &message)
       ? "authoritative sync started"
       : nullptr);
     gameManager.clearReceivedContent();
-    fantasyAlertActive = false;
-    restoreStandbyAfterFantasyAlert();
     syncLifecycleState = SYNC_IN_PROGRESS;
+    // Cancel only the visible alert; unrelated waiting alerts retain FIFO order.
+    if (fantasyAlertActive) finishFantasyAlert();
     drawCurrentScreen();
     return;
   }

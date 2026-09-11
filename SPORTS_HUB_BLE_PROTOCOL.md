@@ -158,9 +158,19 @@ received during an alert appear when the overlay expires.
   names are required and limited to 20 bytes each.
 - `points` is Sleeper's authoritative delta. All three score fields are finite
   JSON numbers. Confidence is diagnostic metadata and is not rendered.
-- The overlay lasts approximately seven seconds using non-blocking `millis()`
-  state. A new alert replaces the visible alert and restarts the duration; no
-  queue or persistence is used.
+- Each overlay lasts approximately seven seconds using non-blocking `millis()`
+  state. Incoming alerts wait FIFO in 16 fixed-size slots in addition to the
+  active alert. Enqueueing does not redraw or restart the active timer. A full
+  queue rejects the newest alert and logs a diagnostic, preserving accepted alerts.
+- Mobile owns ordering: user players first, then descending absolute point
+  delta, then transition ID. It awaits every BLE write and drains pending alerts
+  in one observation, stopping on failure or disconnect and retaining unsent work.
+- Standby wakes once for the alert sequence and sleeps only after the last alert.
+  Manually exiting standby keeps the screen awake after the sequence. SYNC_START
+  cancels only the active alert and immediately advances any waiting alert.
+- Queues are in RAM. The existing BLE write response is not an application-level
+  display acknowledgement; firmware queue overflow is logged locally and cannot
+  trigger a mobile retry with the unchanged protocol.
 - Underlying sports transfers and button navigation remain active without
   dismissing the overlay. Expiration invokes the normal centralized renderer,
   revealing the newest selected game/PGA page and current connection state.
