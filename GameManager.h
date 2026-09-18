@@ -1,5 +1,6 @@
 /**
- * GameManager keeps track of which mock game is selected.
+ * GameManager stores received sports and Fantasy slates and their navigation state.
+ * Mock games provide the fallback when no received content is available.
  */
 
 #ifndef GAME_MANAGER_H

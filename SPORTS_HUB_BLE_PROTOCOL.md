@@ -6,16 +6,20 @@ Advertising name:
 Peter Sports Hub
 
 Service UUID:
-<EXISTING ESP32 SERVICE UUID>
+d8f6a9b0-7a5e-4e8c-9f2a-2b2f5b6c1001
 
 Writable characteristic UUID:
-<EXISTING ESP32 CHARACTERISTIC UUID>
+d8f6a9b1-7a5e-4e8c-9f2a-2b2f5b6c1001
 
-Temporary wake-notification characteristic UUID:
+BLE WAKE notification characteristic UUID:
 d8f6a9b2-7a5e-4e8c-9f2a-2b2f5b6c1001
 
-Encoding:
-UTF-8 JSON
+The notify-only WAKE characteristic sends the UTF-8 text `WAKE` every 20 seconds
+while a central is connected. Mobile subscribes to it to trigger the existing
+normal-sports refresh and fantasy observation paths, including while backgrounded.
+
+Encoding on the writable characteristic:
+UTF-8 JSON or the short text control commands below
 
 Session lifecycle commands (existing writable characteristic):
 - `SYNC_START`: the app began an authoritative sync for a genuine new BLE connection session. SCRBRD clears the prior received-content catalog once, then rebuilds it in packet receipt order. Ordinary disconnects do not clear cached content.
@@ -180,15 +184,16 @@ received during an alert appear when the overlay expires.
 - Packets are compact UTF-8 JSON at most 512 bytes. `player` is required and
   limited to 32 bytes; optional `headline` is limited to 32 bytes; both matchup
   names are required and limited to 20 bytes each.
-- `points` is Sleeper's authoritative delta. All three score fields are finite
+- `points` is the authoritative fantasy point delta for the observed league. All three score fields are finite
   JSON numbers. Confidence is diagnostic metadata and is not rendered.
 - Each overlay lasts approximately seven seconds using non-blocking `millis()`
   state. Incoming alerts wait FIFO in 16 fixed-size slots in addition to the
   active alert. Enqueueing does not redraw or restart the active timer. A full
   queue rejects the newest alert and logs a diagnostic, preserving accepted alerts.
-- Mobile owns ordering: user players first, then descending absolute point
-  delta, then transition ID. It awaits every BLE write and drains pending alerts
-  in one observation, stopping on failure or disconnect and retaining unsent work.
+- Mobile owns alert ordering and league-local pending queues. Presentation may
+  aggregate transitions for the same canonical player across leagues/providers.
+  It awaits every BLE write, stopping on failure or disconnect and retaining
+  unsent work for a later observation.
 - Standby wakes once for the alert sequence and sleeps only after the last alert.
   Manually exiting standby keeps the screen awake after the sequence. SYNC_START
   cancels only the active alert and immediately advances any waiting alert.

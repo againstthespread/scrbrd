@@ -8,7 +8,7 @@ namespace
 {
   BLEServer *bleServer = nullptr;
   BLEAdvertising *bleAdvertising = nullptr;
-  // TEMPORARY BLE WAKE-NOTIFICATION EXPERIMENT: Remove after iOS testing.
+  // BLE WAKE notifications trigger the connected app's refresh path.
   BLECharacteristic *wakeCharacteristic = nullptr;
 
   const unsigned long WAKE_NOTIFICATION_INTERVAL_MS = 20000;
@@ -89,13 +89,13 @@ void BluetoothManager::beginBluetooth()
   rxCharacteristic->setCallbacks(new SportsHubCharacteristicCallbacks());
   rxCharacteristic->addDescriptor(new BLE2902());
 
-  // TEMPORARY BLE WAKE-NOTIFICATION EXPERIMENT: Remove after iOS testing.
+  // BLE WAKE notifications trigger the connected app's refresh path.
   wakeCharacteristic = service->createCharacteristic(
     BLUETOOTH_WAKE_CHARACTERISTIC_UUID,
     BLECharacteristic::PROPERTY_NOTIFY
   );
   wakeCharacteristic->addDescriptor(new BLE2902());
-  USBSerial.print("TEMP BLE WAKE EXPERIMENT: wake characteristic created: ");
+  USBSerial.print("BLE WAKE: wake characteristic created: ");
   USBSerial.println(BLUETOOTH_WAKE_CHARACTERISTIC_UUID);
 
   service->start();
@@ -132,7 +132,7 @@ void BluetoothManager::updateBluetooth()
     USBSerial.println("BLE advertising restarted.");
   }
 
-  // TEMPORARY BLE WAKE-NOTIFICATION EXPERIMENT: Remove after iOS testing.
+  // BLE WAKE notifications trigger the connected app's refresh path.
   const unsigned long now = millis();
   if (now - lastWakeNotificationTime < WAKE_NOTIFICATION_INTERVAL_MS)
   {
@@ -142,23 +142,20 @@ void BluetoothManager::updateBluetooth()
   lastWakeNotificationTime = now;
   if (!clientConnected)
   {
-    USBSerial.println(
-      "TEMP BLE WAKE EXPERIMENT: wake notification skipped; no central connected."
-    );
     return;
   }
 
   if (wakeCharacteristic == nullptr)
   {
     USBSerial.println(
-      "TEMP BLE WAKE EXPERIMENT: wake notification skipped; characteristic unavailable."
+      "BLE WAKE: wake notification skipped; characteristic unavailable."
     );
     return;
   }
 
   wakeCharacteristic->setValue("WAKE");
   wakeCharacteristic->notify();
-  USBSerial.println("TEMP BLE WAKE EXPERIMENT: wake notification sent.");
+  USBSerial.println("BLE WAKE: wake notification sent.");
 }
 
 
