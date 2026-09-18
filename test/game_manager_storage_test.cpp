@@ -30,6 +30,14 @@ static void selectEvent(GameManager &manager, uint8_t index)
   }
 }
 
+static FantasyMatchupData makeFantasyMatchup(const char *identity)
+{
+  FantasyMatchupData matchup = {};
+  std::snprintf(matchup.identity, sizeof(matchup.identity), "%s", identity);
+  std::snprintf(matchup.leagueName, sizeof(matchup.leagueName), "%s", identity);
+  return matchup;
+}
+
 int main()
 {
   GameData games[GameManager::MAX_LARGE_SLATE_GAMES] = {};
@@ -89,6 +97,47 @@ int main()
   assert(manager.largeSlateOwnerIndex == 0);
   assert(manager.getCurrentGameCount() == 67);
   assert(std::strcmp(manager.getCurrentGame().eventId, "event-0") == 0);
+
+  manager.clearReceivedContent();
+  assert(manager.beginFantasySlate());
+  assert(manager.stageFantasyMatchup(makeFantasyMatchup("fantasy-1")));
+  assert(manager.stageFantasyMatchup(makeFantasyMatchup("fantasy-2")));
+  assert(manager.stageFantasyMatchup(makeFantasyMatchup("fantasy-3")));
+  assert(manager.commitFantasySlate());
+  makeGames(games, 2);
+  assert(manager.setReceivedSlate("NFL", games, 2));
+  assert(manager.setReceivedSlate("NBA", games, 2));
+  assert(std::strcmp(manager.getCurrentFantasyMatchup()->identity, "fantasy-1") == 0);
+  manager.nextGame();
+  assert(std::strcmp(manager.getCurrentFantasyMatchup()->identity, "fantasy-2") == 0);
+  manager.nextGame();
+  assert(std::strcmp(manager.getCurrentFantasyMatchup()->identity, "fantasy-3") == 0);
+  manager.nextGame();
+  assert(std::strcmp(manager.getCurrentFantasyMatchup()->identity, "fantasy-1") == 0);
+  manager.nextGame();
+  assert(std::strcmp(manager.getCurrentFantasyMatchup()->identity, "fantasy-2") == 0);
+  manager.nextLeague();
+  assert(std::strcmp(manager.getCurrentLeagueName(), "NFL") == 0);
+  assert(std::strcmp(manager.getCurrentGame().eventId, "event-0") == 0);
+  manager.nextGame();
+  assert(std::strcmp(manager.getCurrentGame().eventId, "event-1") == 0);
+  manager.nextLeague();
+  assert(std::strcmp(manager.getCurrentLeagueName(), "NBA") == 0);
+  manager.nextLeague();
+  assert(std::strcmp(manager.getCurrentFantasyMatchup()->identity, "fantasy-1") == 0);
+
+  manager.clearReceivedContent();
+  assert(manager.setReceivedFantasyMatchup(makeFantasyMatchup("fantasy-only")));
+  assert(manager.setReceivedSlate("NBA", games, 1));
+  manager.nextGame();
+  assert(std::strcmp(manager.getCurrentFantasyMatchup()->identity, "fantasy-only") == 0);
+  manager.nextLeague();
+  assert(std::strcmp(manager.getCurrentLeagueName(), "NBA") == 0);
+
+  manager.clearReceivedContent();
+  assert(manager.beginFantasySlate());
+  assert(manager.commitFantasySlate());
+  assert(!manager.hasReceivedContent());
 
   manager.clearReceivedContent();
   assert(manager.largeSlateOwnerIndex == -1);

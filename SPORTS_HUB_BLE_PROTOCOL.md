@@ -134,14 +134,38 @@ Fantasy scoring alert (ephemeral overlay):
 Persistent Fantasy category:
 
 ```json
-{"version":1,"type":"fantasy_matchup","leagueName":"Peter's League","userName":"PETER","userScore":104.7,"opponentName":"MIKE","opponentScore":97.2,"week":3,"status":"LIVE"}
+{"version":1,"type":"fantasy_slate_start"}
+{"version":1,"type":"fantasy_matchup","identity":"espn:123","leagueName":"Peter's League","userName":"PETER","userScore":104.7,"opponentName":"MIKE","opponentScore":97.2,"week":3,"status":"LIVE"}
+{"version":1,"type":"fantasy_slate_end"}
 ```
 
-Limits: `leagueName` 1-48 characters; team names 1-20; finite scores from
--10000 through 10000; week 1-30; status `UPCOMING`, `LIVE`, or `FINAL`; total
-UTF-8 JSON no more than 512 bytes. A valid packet creates or atomically updates
-the single persistent Fantasy navigation category. It remains in RAM and is
-navigable while disconnected, using the existing updates-paused treatment.
+`fantasy_slate_start` begins staging a replacement Fantasy slate.
+`fantasy_matchup` adds or updates one staged matchup. Its required opaque
+`identity` is a stable provider-qualified league identity; firmware never
+interprets its ESPN or Sleeper semantics. `fantasy_slate_end` atomically commits
+the staged slate. The received order is preserved, except that a duplicate
+identity replaces its earlier staged entry in place. Up to 8 fantasy matchups
+are retained.
+
+An empty completed slate clears the previously committed Fantasy slate. An
+incomplete or malformed transfer never changes the last committed slate.
+
+Limits: `identity` and `leagueName` are each 1-48 characters; team names are
+1-20; scores are finite numbers from -10000 through 10000; week is 1-30;
+status is `UPCOMING`, `LIVE`, or `FINAL`; each UTF-8 JSON packet is no more
+than 512 bytes.
+
+For compatibility, a standalone legacy `fantasy_matchup` packet without a
+slate transfer remains accepted and replaces Fantasy with its single matchup.
+It uses the existing packet fields and does not require `identity`.
+
+Fantasy remains one persistent top-level navigation category. Its committed
+matchups are games within that category: BOOT single-click and `NEXT_GAME`
+cycle them and wrap; BOOT double-click and `NEXT_LEAGUE` reset Fantasy to entry
+0, then continue normal received-category navigation. Mobile sends Primary
+first, so entry 0 is the Primary matchup whenever Fantasy is entered. Fantasy
+remains in RAM and is navigable while disconnected, using the existing
+updates-paused treatment.
 
 ```json
 {"version":1,"type":"fantasy_clear"}

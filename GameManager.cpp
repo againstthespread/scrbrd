@@ -276,6 +276,10 @@ bool GameManager::setReceivedGolfLeaderboard(
 
 bool GameManager::setReceivedFantasyMatchup(const FantasyMatchupData &matchup)
 {
+  fantasySlate[0] = matchup;
+  fantasySlateCount = 1;
+  currentFantasySlateIndex = 0;
+  fantasySlateTransferActive = false;
   const char *category = "FANTASY";
   int8_t existingIndex = findReceivedLeague(category);
   if (existingIndex < 0 && receivedLeagueCount >= MAX_RECEIVED_LEAGUES)
@@ -300,6 +304,55 @@ bool GameManager::setReceivedFantasyMatchup(const FantasyMatchupData &matchup)
       currentReceivedGameIndex = 0;
     }
   }
+  return true;
+}
+
+bool GameManager::beginFantasySlate()
+{
+  stagedFantasySlateCount = 0;
+  fantasySlateTransferActive = true;
+  return true;
+}
+
+bool GameManager::stageFantasyMatchup(const FantasyMatchupData &matchup)
+{
+  if (!fantasySlateTransferActive || matchup.identity[0] == '\0') return false;
+  for (uint8_t index = 0; index < stagedFantasySlateCount; index++)
+  {
+    if (strcmp(stagedFantasySlate[index].identity, matchup.identity) == 0)
+    {
+      stagedFantasySlate[index] = matchup;
+      return true;
+    }
+  }
+  if (stagedFantasySlateCount >= MAX_RECEIVED_LEAGUES) return false;
+  stagedFantasySlate[stagedFantasySlateCount++] = matchup;
+  return true;
+}
+
+bool GameManager::commitFantasySlate()
+{
+  if (!fantasySlateTransferActive) return false;
+  fantasySlateCount = stagedFantasySlateCount;
+  for (uint8_t index = 0; index < fantasySlateCount; index++) fantasySlate[index] = stagedFantasySlate[index];
+  stagedFantasySlateCount = 0;
+  fantasySlateTransferActive = false;
+  currentFantasySlateIndex = 0;
+  if (fantasySlateCount == 0) return clearReceivedFantasyMatchup() || true;
+  return syncFantasyDisplay();
+}
+
+bool GameManager::syncFantasyDisplay()
+{
+  int8_t existingIndex = findReceivedLeague("FANTASY");
+  if (existingIndex < 0 && receivedLeagueCount >= MAX_RECEIVED_LEAGUES) return false;
+  uint8_t targetIndex = existingIndex < 0 ? receivedLeagueCount : static_cast<uint8_t>(existingIndex);
+  ReceivedLeague &target = receivedLeagues[targetIndex];
+  strlcpy(target.name, "FANTASY", sizeof(target.name));
+  target.contentType = RECEIVED_FANTASY;
+  target.gameCount = 1;
+  target.fantasyMatchup = fantasySlate[currentFantasySlateIndex];
+  if (existingIndex < 0) receivedLeagueCount++;
   return true;
 }
 
@@ -350,6 +403,12 @@ void GameManager::nextGame()
     const ReceivedLeague &league = receivedLeagues[currentReceivedLeagueIndex];
     if (league.contentType == RECEIVED_FANTASY)
     {
+      if (fantasySlateCount > 1)
+      {
+        currentFantasySlateIndex =
+          (currentFantasySlateIndex + 1) % fantasySlateCount;
+        syncFantasyDisplay();
+      }
       return;
     }
     if (league.contentType == RECEIVED_GOLF)
@@ -407,6 +466,11 @@ void GameManager::nextLeague()
 {
   if (receivedLeagueCount > 0)
   {
+    if (isCurrentLeagueFantasy() && fantasySlateCount > 0)
+    {
+      currentFantasySlateIndex = 0;
+      syncFantasyDisplay();
+    }
     currentReceivedLeagueIndex =
       (currentReceivedLeagueIndex + 1) % receivedLeagueCount;
     currentReceivedGameIndex = 0;

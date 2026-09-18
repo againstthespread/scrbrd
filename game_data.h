@@ -42,6 +42,7 @@ struct GolfLeaderboardRow
 
 struct FantasyMatchupData
 {
+  char identity[49];
   char leagueName[49];
   char userName[21];
   float userScore;

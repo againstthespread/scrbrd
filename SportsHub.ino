@@ -1393,6 +1393,9 @@ bool handleFantasyMatchupPacket(const String &message)
     return false;
   }
   FantasyMatchupData next = {};
+  const char *identity = packet["identity"].is<const char *>() ? packet["identity"].as<const char *>() : "legacy";
+  if (strlen(identity) > 48) { rejectGamePacket("fantasy identity"); return false; }
+  strlcpy(next.identity, identity, sizeof(next.identity));
   strlcpy(next.leagueName, leagueName, sizeof(next.leagueName));
   strlcpy(next.userName, userName, sizeof(next.userName));
   strlcpy(next.opponentName, opponentName, sizeof(next.opponentName));
@@ -1400,7 +1403,10 @@ bool handleFantasyMatchupPacket(const String &message)
   next.userScore = userScore;
   next.opponentScore = opponentScore;
   next.week = static_cast<uint8_t>(week);
-  if (!gameManager.setReceivedFantasyMatchup(next))
+  const bool accepted = gameManager.isFantasySlateTransferActive()
+    ? gameManager.stageFantasyMatchup(next)
+    : gameManager.setReceivedFantasyMatchup(next);
+  if (!accepted)
   {
     rejectGamePacket("received category capacity reached");
     return false;
@@ -2044,6 +2050,16 @@ void handleBluetoothCommand(const String &message)
     if (strcmp(type, "fantasy_matchup") == 0)
     {
       handleFantasyMatchupPacket(message);
+      return;
+    }
+    if (strcmp(type, "fantasy_slate_start") == 0)
+    {
+      gameManager.beginFantasySlate();
+      return;
+    }
+    if (strcmp(type, "fantasy_slate_end") == 0)
+    {
+      if (!gameManager.commitFantasySlate()) rejectGamePacket("fantasy slate not active");
       return;
     }
     if (strcmp(type, "fantasy_clear") == 0)

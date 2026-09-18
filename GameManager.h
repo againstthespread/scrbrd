@@ -43,6 +43,10 @@ public:
     uint8_t golferCount
   );
   bool setReceivedFantasyMatchup(const FantasyMatchupData &matchup);
+  bool beginFantasySlate();
+  bool stageFantasyMatchup(const FantasyMatchupData &matchup);
+  bool commitFantasySlate();
+  bool isFantasySlateTransferActive() const { return fantasySlateTransferActive; }
   bool clearReceivedFantasyMatchup();
   void clearReceivedContent();
 
@@ -89,6 +93,13 @@ private:
   uint8_t receivedLeagueCount = 0;
   uint8_t currentReceivedLeagueIndex = 0;
   uint8_t currentReceivedGameIndex = 0;
+  FantasyMatchupData fantasySlate[MAX_RECEIVED_LEAGUES] = {};
+  FantasyMatchupData stagedFantasySlate[MAX_RECEIVED_LEAGUES] = {};
+  uint8_t fantasySlateCount = 0;
+  uint8_t stagedFantasySlateCount = 0;
+  bool fantasySlateTransferActive = false;
+  uint8_t currentFantasySlateIndex = 0;
+  bool syncFantasyDisplay();
 
   const LeagueData &getCurrentLeague();
   int8_t findReceivedLeague(const char *league);
