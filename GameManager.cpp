@@ -276,6 +276,9 @@ bool GameManager::setReceivedGolfLeaderboard(
 
 bool GameManager::setReceivedFantasyMatchup(const FantasyMatchupData &matchup)
 {
+  // A legacy standalone update cannot safely identify which entry in a
+  // committed multi-league slate it represents. Preserve the atomic slate.
+  if (fantasySlateCount > 1 && findReceivedLeague("FANTASY") >= 0) return false;
   fantasySlate[0] = matchup;
   fantasySlateCount = 1;
   currentFantasySlateIndex = 0;

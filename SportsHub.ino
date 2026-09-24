@@ -14,6 +14,7 @@
 #include "Arduino_GFX_Library.h"
 #include "BluetoothManager.h"
 #include "GameManager.h"
+#include "fantasy_projection.h"
 #include "pin_config.h"
 #include "HWCDC.h"
 
@@ -757,6 +758,18 @@ void drawFantasyMatchupScore(float score, int16_t baselineY, uint16_t color)
 }
 
 
+void drawFantasyProjection(bool hasScore, float score, int16_t baselineY)
+{
+  char projection[20];
+  formatFantasyProjection(projection, sizeof(projection), hasScore, score);
+  const uint16_t width = measuredTextWidth(projection, 1);
+  gfx->setTextColor(COLOR_GRAY);
+  gfx->setTextSize(1);
+  gfx->setCursor(220 - width, baselineY);
+  gfx->println(projection);
+}
+
+
 void drawFantasyMatchup()
 {
   const FantasyMatchupData *matchup = gameManager.getCurrentFantasyMatchup();
@@ -787,6 +800,11 @@ void drawFantasyMatchup()
   gfx->setCursor(20, userSize == 2 ? 105 : 112);
   gfx->print(fittedUser);
   drawFantasyMatchupScore(matchup->userScore, 105, GREEN);
+  drawFantasyProjection(
+    matchup->hasUserProjectedScore,
+    matchup->userProjectedScore,
+    124
+  );
 
   gfx->drawFastHLine(20, 137, 200, COLOR_DARK_BLUE);
   uint8_t opponentSize;
@@ -796,6 +814,11 @@ void drawFantasyMatchup()
   gfx->setCursor(20, opponentSize == 2 ? 152 : 159);
   gfx->print(fittedOpponent);
   drawFantasyMatchupScore(matchup->opponentScore, 152, YELLOW);
+  drawFantasyProjection(
+    matchup->hasOpponentProjectedScore,
+    matchup->opponentProjectedScore,
+    171
+  );
 
   gfx->drawFastHLine(20, 190, 200, COLOR_GRAY);
   gfx->setTextColor(CYAN);
@@ -1402,6 +1425,14 @@ bool handleFantasyMatchupPacket(const String &message)
   strlcpy(next.status, status, sizeof(next.status));
   next.userScore = userScore;
   next.opponentScore = opponentScore;
+  const OptionalFantasyProjection userProjection =
+    readOptionalFantasyProjection(packet, "userProjectedScore");
+  next.hasUserProjectedScore = userProjection.hasValue;
+  next.userProjectedScore = userProjection.value;
+  const OptionalFantasyProjection opponentProjection =
+    readOptionalFantasyProjection(packet, "opponentProjectedScore");
+  next.hasOpponentProjectedScore = opponentProjection.hasValue;
+  next.opponentProjectedScore = opponentProjection.value;
   next.week = static_cast<uint8_t>(week);
   const bool accepted = gameManager.isFantasySlateTransferActive()
     ? gameManager.stageFantasyMatchup(next)

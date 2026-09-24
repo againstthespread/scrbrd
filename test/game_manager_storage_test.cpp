@@ -35,6 +35,10 @@ static FantasyMatchupData makeFantasyMatchup(const char *identity)
   FantasyMatchupData matchup = {};
   std::snprintf(matchup.identity, sizeof(matchup.identity), "%s", identity);
   std::snprintf(matchup.leagueName, sizeof(matchup.leagueName), "%s", identity);
+  matchup.hasUserProjectedScore = true;
+  matchup.userProjectedScore = 126.7f;
+  matchup.hasOpponentProjectedScore = true;
+  matchup.opponentProjectedScore = 119.4f;
   return matchup;
 }
 
@@ -108,6 +112,8 @@ int main()
   assert(manager.setReceivedSlate("NFL", games, 2));
   assert(manager.setReceivedSlate("NBA", games, 2));
   assert(std::strcmp(manager.getCurrentFantasyMatchup()->identity, "fantasy-1") == 0);
+  assert(manager.getCurrentFantasyMatchup()->hasUserProjectedScore);
+  assert(manager.getCurrentFantasyMatchup()->userProjectedScore == 126.7f);
   manager.nextGame();
   assert(std::strcmp(manager.getCurrentFantasyMatchup()->identity, "fantasy-2") == 0);
   manager.nextGame();
@@ -115,6 +121,9 @@ int main()
   manager.nextGame();
   assert(std::strcmp(manager.getCurrentFantasyMatchup()->identity, "fantasy-1") == 0);
   manager.nextGame();
+  assert(std::strcmp(manager.getCurrentFantasyMatchup()->identity, "fantasy-2") == 0);
+  assert(!manager.setReceivedFantasyMatchup(makeFantasyMatchup("legacy")));
+  assert(manager.fantasySlateCount == 3);
   assert(std::strcmp(manager.getCurrentFantasyMatchup()->identity, "fantasy-2") == 0);
   manager.nextLeague();
   assert(std::strcmp(manager.getCurrentLeagueName(), "NFL") == 0);

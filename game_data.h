@@ -46,8 +46,12 @@ struct FantasyMatchupData
   char leagueName[49];
   char userName[21];
   float userScore;
+  bool hasUserProjectedScore;
+  float userProjectedScore;
   char opponentName[21];
   float opponentScore;
+  bool hasOpponentProjectedScore;
+  float opponentProjectedScore;
   uint8_t week;
   char status[9];
 };

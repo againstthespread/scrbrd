@@ -139,7 +139,7 @@ Persistent Fantasy category:
 
 ```json
 {"version":1,"type":"fantasy_slate_start"}
-{"version":1,"type":"fantasy_matchup","identity":"espn:123","leagueName":"Peter's League","userName":"PETER","userScore":104.7,"opponentName":"MIKE","opponentScore":97.2,"week":3,"status":"LIVE"}
+{"version":1,"type":"fantasy_matchup","identity":"espn:123","leagueName":"Peter's League","userName":"PETER","userScore":104.7,"userProjectedScore":126.7,"opponentName":"MIKE","opponentScore":97.2,"opponentProjectedScore":119.4,"week":3,"status":"LIVE"}
 {"version":1,"type":"fantasy_slate_end"}
 ```
 
@@ -159,9 +159,17 @@ Limits: `identity` and `leagueName` are each 1-48 characters; team names are
 status is `UPCOMING`, `LIVE`, or `FINAL`; each UTF-8 JSON packet is no more
 than 512 bytes.
 
+`userProjectedScore` and `opponentProjectedScore` are independent optional
+finite numbers in the same -10000 through 10000 range. Missing, null, malformed,
+or out-of-range projections are rendered as unavailable and never invalidate
+otherwise valid actual matchup data. Firmware displays projections as secondary
+`PROJ` lines; actual scores remain primary.
+
 For compatibility, a standalone legacy `fantasy_matchup` packet without a
 slate transfer remains accepted and replaces Fantasy with its single matchup.
-It uses the existing packet fields and does not require `identity`.
+It uses the existing packet fields and does not require `identity`. Firmware
+rejects a standalone packet while a committed multi-matchup Fantasy slate is
+present because the legacy packet cannot identify which slate entry to update.
 
 Fantasy remains one persistent top-level navigation category. Its committed
 matchups are games within that category: BOOT single-click and `NEXT_GAME`
