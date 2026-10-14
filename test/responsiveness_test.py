@@ -172,6 +172,22 @@ int main(int argc, char **argv) {
     // Physical release + 50ms debounce + 300ms window + bounded scheduling/render.
     assert(frames.back().at <= 700000 && maxPollGap <= 60000);
     if (bluetoothManager.continuous) assert(bluetoothManager.serviced > 20);
+  } else if (scenario == "bounce_traffic" || scenario == "triple_traffic") {
+    USBSerial.stalled = true; bluetoothManager.connected = true;
+    lastDisplayedBluetoothConnected = true; bluetoothManager.continuous = true;
+    bluetoothManager.traffic = R"({"version":1,"type":"slate_start","league":"NBA","slateId":"s","totalGames":2,"totalChunks":1})";
+    if (scenario == "bounce_traffic") {
+      runUntil(1500000, {{100000, 110000}, {124000, 134000}, {148000, 160000}, {180000, 330000}});
+      assert(String(gameManager.getCurrentLeagueName()) == "NBA");
+      assert(String(gameManager.getCurrentGame().eventId) == "nba-b");
+      assert(frames.size() == 1);
+    } else {
+      runUntil(1700000, {{100000, 230000}, {330000, 460000}, {600000, 740000}});
+      assert(String(gameManager.getCurrentLeagueName()) == "MLB");
+      assert(String(gameManager.getCurrentGame().eventId) == "nba-b");
+      assert(frames.size() == 2 && frames[0].id == "nba-a");
+    }
+    assert(!deviceStandby && maxPollGap <= 60000);
   } else if (scenario == "double_traffic") {
     USBSerial.stalled = true; bluetoothManager.connected = true;
     lastDisplayedBluetoothConnected = true;
@@ -304,16 +320,22 @@ int main(int argc, char **argv) {
 }
 '''
 include = os.environ.get('ARDUINOJSON_INCLUDE', str(Path.home() / 'Documents/Arduino/libraries/ArduinoJson/src'))
-scenarios = ['no_ble_healthy', 'no_ble', 'single_traffic', 'double_traffic', 'hold_traffic', 'sync_selection', 'startup_chunked', 'interrupted_sports', 'rx_loss', 'fantasy_rx_loss', 'incomplete', 'active_refresh_input', 'coalesce']
-with tempfile.TemporaryDirectory(prefix='responsiveness-native-') as directory:
+scenarios = ['no_ble_healthy', 'no_ble', 'single_traffic', 'double_traffic', 'bounce_traffic', 'triple_traffic', 'hold_traffic', 'sync_selection', 'startup_chunked', 'interrupted_sports', 'rx_loss', 'fantasy_rx_loss', 'incomplete', 'active_refresh_input', 'coalesce']
+def build_harness(directory, test_source=tests):
     cpp = Path(directory) / 'test.cpp'
-    cpp.write_text(prefix + globals_ + prototypes + '\n' + functions + tests)
+    cpp.write_text(prefix + globals_ + prototypes + '\n' + functions + test_source)
     binary = Path(directory) / 'test'
     flags = os.environ.get('NATIVE_SANITIZERS', '').split() + os.environ.get('NATIVE_TIMING', '').split()
     subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
                     '-Wno-missing-field-initializers', *flags, '-I' + str(root / 'test/native'),
                     '-I' + str(root), '-I' + include, str(cpp), str(root / 'GameManager.cpp'),
                     '-o', str(binary)], check=True)
-    failures = [case for case in scenarios if subprocess.run([str(binary), case]).returncode]
-    if failures: raise SystemExit('Failed scenarios: ' + ', '.join(failures))
-print('Simulated loop/input timing, synchronization, and transfer tests passed.')
+    return binary
+
+
+if __name__ == '__main__':
+    with tempfile.TemporaryDirectory(prefix='responsiveness-native-') as directory:
+        binary = build_harness(directory)
+        failures = [case for case in scenarios if subprocess.run([str(binary), case]).returncode]
+        if failures: raise SystemExit('Failed scenarios: ' + ', '.join(failures))
+    print('Simulated loop/input timing, synchronization, and transfer tests passed.')

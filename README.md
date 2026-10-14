@@ -139,3 +139,8 @@ It is not a physical performance measurement. Enable native timing with
 `NATIVE_TIMING=-DSCRBRD_TIMING=1`; the responsiveness, fantasy-transfer, and BLE
 queue harnesses accept `NATIVE_SANITIZERS` compiler flags. The BLE queue test
 includes a concurrent producer/consumer ordering regression.
+
+[F34_SYSTEM_INTEGRITY_AUDIT.md](F34_SYSTEM_INTEGRITY_AUDIT.md) records the post-F33
+integration review, bounded fixes, remaining production risks, and the mobile
+fixture export/native compatibility commands. The bridge runner uses actual
+mobile serializers and firmware handlers with native hardware stubs.

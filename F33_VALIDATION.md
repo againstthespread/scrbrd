@@ -43,12 +43,12 @@ and consumer functions reproduced ThreadSanitizer data-race reports in
 ordering assertion failure. This was not a simulated RF loss test.
 
 [`BluetoothManager.cpp:23`](BluetoothManager.cpp#L23) now uses a bounded SPSC
-ring: Bluedroid's single host callback task is the producer; Arduino's loop is
+ring: the configured NimBLE host callback task is the producer; Arduino's loop is
 the only consumer. Acquire/release indices transfer slot ownership after writes
 and reads finish. There is one spare slot and still **56 usable slots**. Connection,
 advertising, and wake-time state shared with callbacks is atomic. The native
 20,000-packet producer/consumer test passes with ThreadSanitizer. This relies on
-the existing Bluedroid single-producer callback model; a future stack with
+the existing NimBLE single-producer callback model; a future stack with
 parallel writers needs a fresh review.
 
 Oversized, empty, allocation-failed, or queue-full writes signal known RX loss

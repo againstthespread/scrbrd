@@ -21,17 +21,31 @@ prefix = r'''
 #include <chrono>
 #include <thread>
 #include <string>
-using String = std::string;
+// Model Arduino String's non-throwing copy allocation failure. Move remains
+// allocation-free. This checks C++ return semantics, not the ESP32 allocator.
+class String : public std::string {
+public:
+  using std::string::string;
+  using std::string::operator=;
+  static inline bool failCopy = false;
+  String(const String &other) : std::string(failCopy ? "" : other.c_str(), failCopy ? 0 : other.size()) {}
+  String(String &&other) noexcept = default;
+  String &operator=(const String &) = default;
+  String &operator=(String &&) noexcept = default;
+};
+#define private public
 #include "BluetoothManager.h"
+#undef private
 HWCDC USBSerial;
-unsigned long millis() { return 100; }
+uint32_t now = 100;
+unsigned long millis() { return now; }
 struct BLEServer {};
-struct BLEAdvertising {};
+struct BLEAdvertising { void start() {} };
 struct BLEServerCallbacks {
   virtual void onConnect(BLEServer *) {}
   virtual void onDisconnect(BLEServer *) {}
 };
-struct BLECharacteristic { String value; String getValue() { return value; } };
+struct BLECharacteristic { String value; unsigned notifications = 0; String getValue() { return value; } void setValue(const char *text) { value = text; } void notify() { ++notifications; } };
 struct BLECharacteristicCallbacks { virtual void onWrite(BLECharacteristic *) {} };
 '''
 tests = r'''
@@ -62,6 +76,23 @@ int main() {
     assert(manager.getReceivedMessage() == "current-entry");
     assert(!manager.hasReceivedMessage());
   }
+  BLECharacteristic wake;
+  wakeCharacteristic = &wake; manager.bluetoothStarted = true;
+  now = 20099; manager.updateBluetooth(); assert(wake.notifications == 0);
+  now = 20100; manager.updateBluetooth(); assert(wake.notifications == 1 && wake.value == "WAKE");
+  now = 20101; manager.updateBluetooth(); assert(wake.notifications == 1);
+  server.onDisconnect(nullptr); now = 40100; manager.updateBluetooth();
+  assert(wake.notifications == 1); assert(manager.takeDisconnectEvent());
+  now = 0xFFFFFF00; server.onConnect(nullptr);
+  now += 19999; manager.updateBluetooth(); assert(wake.notifications == 1);
+  ++now; manager.updateBluetooth(); assert(wake.notifications == 2);
+  // The consumer must transfer ownership without another allocating copy.
+  rx.value = String(512, 'z'); callback.onWrite(&rx);
+  String::failCopy = true;
+  const auto packetWithoutAllocation = manager.getReceivedMessage();
+  String::failCopy = false;
+  assert(packetWithoutAllocation == String(512, 'z'));
+  assert(!manager.takeReceiveLossEvent());
   // Overflow, oversized writes, and allocation-independent queue recovery.
   for (int i = 0; i < RECEIVED_MESSAGE_QUEUE_CAPACITY; ++i) {
     rx.value = "queued"; callback.onWrite(&rx);
@@ -100,9 +131,35 @@ int main() {
   }
   producer.join();
   assert(produced == packets && consumed == packets && !manager.hasReceivedMessage());
+  produced.store(0); consumed.store(0); done.store(false);
+  const auto reconnectDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  std::thread reconnectingProducer([&] {
+    for (int i = 0; i < packets; ++i) {
+      while (i - consumed.load() >= 32) {
+        if (std::chrono::steady_clock::now() > reconnectDeadline) { done.store(true); return; }
+        std::this_thread::yield();
+      }
+      if (i % 137 == 0) { server.onDisconnect(nullptr); server.onConnect(nullptr); }
+      rx.value = std::to_string(i); callback.onWrite(&rx); produced.store(i + 1);
+    }
+    done.store(true);
+  });
+  int last = -1, processed = 0;
+  while (!done.load() || manager.hasReceivedMessage()) {
+    if (std::chrono::steady_clock::now() > reconnectDeadline) break;
+    if (!manager.hasReceivedMessage()) { std::this_thread::yield(); continue; }
+    auto packet = manager.getReceivedMessage();
+    if (!packet.empty()) { const int sequence = std::stoi(packet); assert(sequence > last); last = sequence; }
+    manager.takeDisconnectEvent(); ++processed; consumed.store(processed);
+  }
+  reconnectingProducer.join();
+  assert(produced == packets && processed == packets && !manager.hasReceivedMessage());
+  rx.value = "fresh-recovery"; callback.onWrite(&rx);
+  assert(manager.getReceivedMessage() == "fresh-recovery");
 }
 '''
 functions = '\n'.join(function(sig) for sig in [
+    'void BluetoothManager::updateBluetooth()',
     'bool BluetoothManager::hasReceivedMessage()',
     'String BluetoothManager::getReceivedMessage()',
     'bool BluetoothManager::takeDisconnectEvent()',

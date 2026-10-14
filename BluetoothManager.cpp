@@ -21,7 +21,7 @@ namespace
   std::atomic<bool> shouldAdvertise{false};
   std::atomic<bool> receiveLossPending{false};
   const uint8_t RECEIVED_MESSAGE_QUEUE_CAPACITY = 56;
-  // Bluedroid invokes onWrite on its single host task (one producer). The
+  // The configured NimBLE host invokes onWrite on one task (one producer). The
   // Arduino loop is the sole consumer. Each publishes its own index only
   // after finishing all access to a slot; acquire/release transfers ownership.
   // One spare slot distinguishes full from empty without a shared count.
@@ -217,7 +217,11 @@ String BluetoothManager::getReceivedMessage()
   String receivedMessage = std::move(receivedMessages[head]);
   receivedMessageHead.store((head + 1) % RECEIVED_MESSAGE_QUEUE_STORAGE,
                            std::memory_order_release);
-  return generation == connectionGeneration.load() ? receivedMessage : String("");
+  if (generation != connectionGeneration.load()) return "";
+  // A mixed lvalue/temporary ternary copies String here. Under heap pressure
+  // that unchecked copy can become empty and silently lose a staged entry.
+  // Returning the local directly uses NRVO or the allocation-free move.
+  return receivedMessage;
 }
 
 // Remember even a disconnect/reconnect that occurs between loop iterations.

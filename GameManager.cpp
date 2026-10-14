@@ -413,6 +413,7 @@ bool GameManager::clearReceivedFantasyMatchup()
     return false;
   }
   uint8_t removed = static_cast<uint8_t>(index);
+  const bool removedActive = removed == currentReceivedLeagueIndex;
   releaseLargeSlateIfOwnedBy(removed);
   for (uint8_t cursor = removed; cursor + 1 < receivedLeagueCount; cursor++)
   {
@@ -436,7 +437,7 @@ bool GameManager::clearReceivedFantasyMatchup()
   {
     currentReceivedLeagueIndex--;
   }
-  currentReceivedGameIndex = 0;
+  if (removedActive || receivedLeagueCount == 0) currentReceivedGameIndex = 0;
   return true;
 }
 

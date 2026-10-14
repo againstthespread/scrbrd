@@ -180,6 +180,41 @@ int main()
   assert(manager.receivedLeagueCount == GameManager::MAX_RECEIVED_LEAGUES);
   assert(std::strcmp(manager.getCurrentLeagueName(), "L0") == 0);
 
+  // Clearing an unrelated Fantasy category must preserve the selected event.
+  for (uint8_t fantasyPosition = 0; fantasyPosition < 3; ++fantasyPosition)
+  {
+    manager.clearReceivedContent();
+    makeGames(games, 3);
+    for (uint8_t slot = 0; slot < 3; ++slot)
+    {
+      if (slot == fantasyPosition) assert(manager.setReceivedFantasyMatchup(makeFantasyMatchup("primary")));
+      else assert(manager.setReceivedSlate(slot == (fantasyPosition == 0 ? 1 : 0) ? "NBA" : "MLB", games, 3));
+    }
+    while (std::strcmp(manager.getCurrentLeagueName(), "NBA") != 0) manager.nextLeague();
+    selectEvent(manager, 2);
+    assert(manager.clearReceivedFantasyMatchup());
+    assert(std::strcmp(manager.getCurrentLeagueName(), "NBA") == 0);
+    assert(std::strcmp(manager.getCurrentGame().eventId, "event-2") == 0);
+  }
+
+  manager.clearReceivedContent();
+  assert(manager.setReceivedFantasyMatchup(makeFantasyMatchup("primary")));
+  GolfLeaderboardRow golfers[12] = {};
+  assert(manager.setReceivedGolfLeaderboard("PGA", "open", "Open", golfers, 12));
+  manager.nextLeague(); manager.nextGame(); manager.nextGame();
+  assert(manager.getCurrentGolfPageNumber() == 3);
+  assert(manager.clearReceivedFantasyMatchup());
+  assert(std::strcmp(manager.getCurrentLeagueName(), "PGA") == 0);
+  assert(manager.getCurrentGolfPageNumber() == 3);
+
+  manager.clearReceivedContent();
+  assert(manager.setReceivedFantasyMatchup(makeFantasyMatchup("primary")));
+  makeGames(games, 72); assert(manager.setReceivedSlate("NCAAF", games, 72));
+  manager.nextLeague(); selectEvent(manager, 40);
+  assert(manager.clearReceivedFantasyMatchup());
+  assert(manager.largeSlateOwnerIndex == 0);
+  assert(std::strcmp(manager.getCurrentGame().eventId, "event-40") == 0);
+
   std::puts("GameManager storage tests passed");
   return 0;
 }
