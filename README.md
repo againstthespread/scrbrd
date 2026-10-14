@@ -103,6 +103,10 @@ The same board target and libraries can be selected in Arduino IDE if preferred.
 - `test/scoreboard_render_test.py` exercises the real scoreboard renderer's
   situational-state availability and clock/team/score layout with drawing stubs;
   `test/test_sketch_test_runner.py` checks the alert runner from another directory.
+- `test/fantasy_slate_transfer_test.py` runs the actual JSON handlers and commit
+  renderer against malformed/interrupted slates, selection, reset, and timeout
+  cases; `test/bluetooth_session_queue_test.py` covers disconnect events and
+  discarding queued packets from an earlier connection.
 
 Run the self-contained native tests from the repository root with a C++17
 compiler on `PATH`:
@@ -115,7 +119,12 @@ c++ -std=c++17 -Itest/native -I. \
 python3 test/fantasy_alert_queue_test.py
 python3 test/scoreboard_render_test.py
 python3 test/test_sketch_test_runner.py
+python3 test/bluetooth_session_queue_test.py
+python3 test/fantasy_slate_transfer_test.py
 ```
 
 `test/fantasy_projection_test.cpp` additionally requires the ArduinoJson headers;
 the full Arduino compile above validates its firmware integration.
+The fantasy-slate harness also requires ArduinoJson. It defaults to
+`~/Documents/Arduino/libraries/ArduinoJson/src`; set `ARDUINOJSON_INCLUDE` if your
+installed headers are elsewhere.

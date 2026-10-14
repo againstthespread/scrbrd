@@ -151,8 +151,19 @@ the staged slate. The received order is preserved, except that a duplicate
 identity replaces its earlier staged entry in place. Up to 8 fantasy matchups
 are retained.
 
-An empty completed slate clears the previously committed Fantasy slate. An
-incomplete or malformed transfer never changes the last committed slate.
+An empty completed slate clears the previously committed Fantasy slate. Rejected
+entries/envelopes invalidate staging; disconnect, explicit reset/cancellation,
+and 30 seconds of inactivity discard it. Known-invalid or unfinished staging
+does not replace committed content. Late identified entries/end after interruption
+require a fresh start. Because existing markers contain no count or transfer ID,
+a silently dropped entry followed by a valid end cannot be distinguished from a
+deliberately smaller slate; BLE write response is not a commit acknowledgement.
+
+Routine commits preserve the selected matchup by identity. Entry zero is Primary:
+changing that first identity deliberately selects the new Primary, removing the
+selected identity falls back to it, and normal league navigation retains its
+Primary-entry reset behavior. Staging does not redraw; successful commitment
+invokes the centralized renderer, which defers during standby/alert overlays.
 
 Limits: `identity` and `leagueName` are each 1-48 characters; team names are
 1-20; scores are finite numbers from -10000 through 10000; week is 1-30;

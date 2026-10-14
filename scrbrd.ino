@@ -132,6 +132,8 @@ uint8_t fantasyAlertQueueCount = 0;
 bool fantasyAlertActive = false;
 bool authoritativeSyncSessionActive = false;
 unsigned long fantasyAlertStartedAt = 0;
+const uint32_t FANTASY_SLATE_TRANSFER_TIMEOUT_MS = 30000;
+uint32_t fantasySlateLastActivityTime = 0;
 
 // Chunked slate staging is deliberately separate from GameManager's active
 // slate so incomplete transfers can never disturb the displayed games.
@@ -1007,6 +1009,18 @@ void markRealContentActivated()
 }
 
 
+void expireFantasySlateIfNeeded()
+{
+  if (gameManager.isFantasySlateTransferActive() &&
+      static_cast<uint32_t>(millis() - fantasySlateLastActivityTime) >=
+        FANTASY_SLATE_TRANSFER_TIMEOUT_MS)
+  {
+    gameManager.cancelFantasySlate();
+    USBSerial.println("Fantasy slate cancelled: 30-second inactivity timeout.");
+  }
+}
+
+
 bool isValidUtf8(const String &text)
 {
   const uint8_t *bytes = reinterpret_cast<const uint8_t *>(text.c_str());
@@ -1416,8 +1430,21 @@ bool handleFantasyMatchupPacket(const String &message)
     return false;
   }
   FantasyMatchupData next = {};
-  const char *identity = packet["identity"].is<const char *>() ? packet["identity"].as<const char *>() : "legacy";
-  if (strlen(identity) > 48) { rejectGamePacket("fantasy identity"); return false; }
+  const bool staging = gameManager.isFantasySlateTransferActive();
+  const bool identified = !packet["identity"].isNull();
+  const char *identity = "legacy";
+  if (staging || identified)
+  {
+    if (!readRequiredText(packet, "identity", 48, identity) ||
+        packet["identity"].as<JsonString>().size() != strlen(identity)) return false;
+  }
+  // Ignore late identified entries from an aborted transfer. Legacy standalone
+  // packets (without identity) remain supported outside active staging.
+  if (!staging && identified && gameManager.isFantasySlateTransferInterrupted())
+  {
+    rejectGamePacket("fantasy entry from interrupted transfer");
+    return false;
+  }
   strlcpy(next.identity, identity, sizeof(next.identity));
   strlcpy(next.leagueName, leagueName, sizeof(next.leagueName));
   strlcpy(next.userName, userName, sizeof(next.userName));
@@ -1443,7 +1470,8 @@ bool handleFantasyMatchupPacket(const String &message)
     return false;
   }
   USBSerial.println("Persistent fantasy matchup accepted.");
-  markRealContentActivated();
+  if (staging) fantasySlateLastActivityTime = millis();
+  else markRealContentActivated();
   return true;
 }
 
@@ -1614,6 +1642,32 @@ bool readSlateTransferDocument(
     rejectGamePacket("invalid chunked slate header");
     return false;
   }
+  return true;
+}
+
+
+bool handleFantasySlateControlPacket(const String &message, bool starting)
+{
+  JsonDocument document;
+  JsonObjectConst packet;
+  if (!readSlateTransferDocument(message,
+      starting ? "fantasy_slate_start" : "fantasy_slate_end", document, packet))
+  {
+    gameManager.cancelFantasySlate();
+    return false;
+  }
+  if (starting)
+  {
+    gameManager.beginFantasySlate();
+    fantasySlateLastActivityTime = millis();
+    return true;
+  }
+  if (!gameManager.commitFantasySlate())
+  {
+    rejectGamePacket("fantasy slate not active or category capacity reached");
+    return false;
+  }
+  markRealContentActivated();
   return true;
 }
 
@@ -1995,6 +2049,7 @@ bool handleGolfEndPacket(const String &message)
  */
 void handleBluetoothCommand(const String &message)
 {
+  expireFantasySlateIfNeeded();
   if (message == "SYNC_START")
   {
     USBSerial.println("BLE command: SYNC_START");
@@ -2080,22 +2135,24 @@ void handleBluetoothCommand(const String &message)
     }
     if (strcmp(type, "fantasy_matchup") == 0)
     {
-      handleFantasyMatchupPacket(message);
+      if (!handleFantasyMatchupPacket(message) && gameManager.isFantasySlateTransferActive())
+        gameManager.cancelFantasySlate();
       return;
     }
     if (strcmp(type, "fantasy_slate_start") == 0)
     {
-      gameManager.beginFantasySlate();
+      handleFantasySlateControlPacket(message, true);
       return;
     }
     if (strcmp(type, "fantasy_slate_end") == 0)
     {
-      if (!gameManager.commitFantasySlate()) rejectGamePacket("fantasy slate not active");
+      handleFantasySlateControlPacket(message, false);
       return;
     }
     if (strcmp(type, "fantasy_clear") == 0)
     {
-      handleFantasyClearPacket(message);
+      if (!handleFantasyClearPacket(message) && gameManager.isFantasySlateTransferActive())
+        gameManager.cancelFantasySlate();
       return;
     }
     if (strcmp(type, "slate") == 0)
@@ -2133,8 +2190,16 @@ void handleBluetoothCommand(const String &message)
       handleGolfEndPacket(message);
       return;
     }
+    if (strcmp(type, "game") == 0)
+    {
+      // Team packets are independent of an in-progress fantasy transaction.
+      handleGamePacket(message);
+      return;
+    }
   }
 
+  // An unparseable/unknown packet in a fantasy transaction invalidates it.
+  if (gameManager.isFantasySlateTransferActive()) gameManager.cancelFantasySlate();
   handleGamePacket(message);
 }
 
@@ -2147,9 +2212,16 @@ void handleBluetoothMessages()
   bluetoothManager.updateBluetooth();
   expireStagingSlateIfNeeded();
   expireGolfStagingIfNeeded();
+  expireFantasySlateIfNeeded();
   expireFantasyAlertIfNeeded();
 
   bool bluetoothConnected = bluetoothManager.isBluetoothConnected();
+  if (bluetoothManager.takeDisconnectEvent() ||
+      (!bluetoothConnected && !gameManager.isFantasySlateTransferInterrupted()))
+  {
+    gameManager.cancelFantasySlate();
+    authoritativeSyncSessionActive = false;
+  }
 
   if (bluetoothConnected != lastDisplayedBluetoothConnected)
   {
@@ -2166,7 +2238,8 @@ void handleBluetoothMessages()
     return;
   }
 
-  handleBluetoothCommand(bluetoothManager.getReceivedMessage());
+  const String message = bluetoothManager.getReceivedMessage();
+  if (bluetoothConnected && message.length() > 0) handleBluetoothCommand(message);
 }
 
 

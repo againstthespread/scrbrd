@@ -47,7 +47,9 @@ public:
   bool beginFantasySlate();
   bool stageFantasyMatchup(const FantasyMatchupData &matchup);
   bool commitFantasySlate();
+  void cancelFantasySlate();
   bool isFantasySlateTransferActive() const { return fantasySlateTransferActive; }
+  bool isFantasySlateTransferInterrupted() const { return fantasySlateTransferInterrupted; }
   bool clearReceivedFantasyMatchup();
   void clearReceivedContent();
 
@@ -99,6 +101,7 @@ private:
   uint8_t fantasySlateCount = 0;
   uint8_t stagedFantasySlateCount = 0;
   bool fantasySlateTransferActive = false;
+  bool fantasySlateTransferInterrupted = false;
   uint8_t currentFantasySlateIndex = 0;
   bool syncFantasyDisplay();
 

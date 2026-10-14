@@ -3,6 +3,7 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+#include <atomic>
 
 namespace
 {
@@ -14,10 +15,13 @@ namespace
   const unsigned long WAKE_NOTIFICATION_INTERVAL_MS = 20000;
   unsigned long lastWakeNotificationTime = 0;
 
+  std::atomic<uint32_t> connectionGeneration{0};
+  std::atomic<bool> disconnectPending{false};
   bool clientConnected = false;
   bool shouldAdvertise = false;
   const uint8_t RECEIVED_MESSAGE_QUEUE_CAPACITY = 56;
   String receivedMessages[RECEIVED_MESSAGE_QUEUE_CAPACITY];
+  uint32_t receivedMessageGenerations[RECEIVED_MESSAGE_QUEUE_CAPACITY] = {};
   volatile uint8_t receivedMessageHead = 0;
   volatile uint8_t receivedMessageTail = 0;
   volatile uint8_t receivedMessageCount = 0;
@@ -33,6 +37,8 @@ namespace
 
     void onDisconnect(BLEServer *server)
     {
+      connectionGeneration.fetch_add(1);
+      disconnectPending.store(true);
       clientConnected = false;
       shouldAdvertise = true;
       USBSerial.println("BLE client disconnected.");
@@ -43,6 +49,7 @@ namespace
   {
     void onWrite(BLECharacteristic *characteristic)
     {
+      const uint32_t generation = connectionGeneration.load();
       auto value = characteristic->getValue();
 
       if (receivedMessageCount >= RECEIVED_MESSAGE_QUEUE_CAPACITY)
@@ -53,6 +60,7 @@ namespace
 
       String receivedMessage = String(value.c_str(), value.length());
       receivedMessages[receivedMessageTail] = receivedMessage;
+      receivedMessageGenerations[receivedMessageTail] = generation;
       receivedMessageTail =
         (receivedMessageTail + 1) % RECEIVED_MESSAGE_QUEUE_CAPACITY;
       receivedMessageCount++;
@@ -189,10 +197,18 @@ String BluetoothManager::getReceivedMessage()
     return "";
   }
 
-  String receivedMessage = receivedMessages[receivedMessageHead];
+  const bool current = receivedMessageGenerations[receivedMessageHead] ==
+    connectionGeneration.load();
+  String receivedMessage = current ? receivedMessages[receivedMessageHead] : String("");
   receivedMessages[receivedMessageHead] = "";
   receivedMessageHead =
     (receivedMessageHead + 1) % RECEIVED_MESSAGE_QUEUE_CAPACITY;
   receivedMessageCount--;
   return receivedMessage;
+}
+
+// Remember even a disconnect/reconnect that occurs between loop iterations.
+bool BluetoothManager::takeDisconnectEvent()
+{
+  return disconnectPending.exchange(false);
 }

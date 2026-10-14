@@ -7,6 +7,10 @@ bool GameManager::hasReceivedContent() const
 
 void GameManager::clearReceivedContent()
 {
+  cancelFantasySlate();
+  fantasySlateCount = 0;
+  currentFantasySlateIndex = 0;
+  for (auto &matchup : fantasySlate) matchup = {};
   for (uint8_t index = 0; index < receivedLeagueCount; index++)
   {
     receivedLeagues[index] = {};
@@ -312,14 +316,16 @@ bool GameManager::setReceivedFantasyMatchup(const FantasyMatchupData &matchup)
 
 bool GameManager::beginFantasySlate()
 {
-  stagedFantasySlateCount = 0;
+  cancelFantasySlate();
+  fantasySlateTransferInterrupted = false;
   fantasySlateTransferActive = true;
   return true;
 }
 
 bool GameManager::stageFantasyMatchup(const FantasyMatchupData &matchup)
 {
-  if (!fantasySlateTransferActive || matchup.identity[0] == '\0') return false;
+  if (!fantasySlateTransferActive) return false;
+  if (matchup.identity[0] == '\0') { cancelFantasySlate(); return false; }
   for (uint8_t index = 0; index < stagedFantasySlateCount; index++)
   {
     if (strcmp(stagedFantasySlate[index].identity, matchup.identity) == 0)
@@ -328,7 +334,7 @@ bool GameManager::stageFantasyMatchup(const FantasyMatchupData &matchup)
       return true;
     }
   }
-  if (stagedFantasySlateCount >= MAX_RECEIVED_LEAGUES) return false;
+  if (stagedFantasySlateCount >= MAX_RECEIVED_LEAGUES) { cancelFantasySlate(); return false; }
   stagedFantasySlate[stagedFantasySlateCount++] = matchup;
   return true;
 }
@@ -336,13 +342,43 @@ bool GameManager::stageFantasyMatchup(const FantasyMatchupData &matchup)
 bool GameManager::commitFantasySlate()
 {
   if (!fantasySlateTransferActive) return false;
+  if (stagedFantasySlateCount > 0 && findReceivedLeague("FANTASY") < 0 &&
+      receivedLeagueCount >= MAX_RECEIVED_LEAGUES)
+  {
+    cancelFantasySlate();
+    return false;
+  }
+  uint8_t selectedIndex = 0;
+  // Entry zero is Primary. A changed Primary intentionally selects entry zero;
+  // ordinary refresh/reordering preserves the selected opaque identity.
+  if (fantasySlateCount > 0 && stagedFantasySlateCount > 0 &&
+      strcmp(fantasySlate[0].identity, stagedFantasySlate[0].identity) == 0)
+  {
+    for (uint8_t index = 0; index < stagedFantasySlateCount; ++index)
+    {
+      if (strcmp(stagedFantasySlate[index].identity,
+                 fantasySlate[currentFantasySlateIndex].identity) == 0)
+      {
+        selectedIndex = index;
+        break;
+      }
+    }
+  }
   fantasySlateCount = stagedFantasySlateCount;
   for (uint8_t index = 0; index < fantasySlateCount; index++) fantasySlate[index] = stagedFantasySlate[index];
+  cancelFantasySlate();
+  fantasySlateTransferInterrupted = false;
+  currentFantasySlateIndex = selectedIndex;
+  if (fantasySlateCount == 0) { clearReceivedFantasyMatchup(); return true; }
+  return syncFantasyDisplay();
+}
+
+void GameManager::cancelFantasySlate()
+{
+  for (auto &matchup : stagedFantasySlate) matchup = {};
   stagedFantasySlateCount = 0;
   fantasySlateTransferActive = false;
-  currentFantasySlateIndex = 0;
-  if (fantasySlateCount == 0) return clearReceivedFantasyMatchup() || true;
-  return syncFantasyDisplay();
+  fantasySlateTransferInterrupted = true;
 }
 
 bool GameManager::syncFantasyDisplay()
@@ -362,6 +398,10 @@ bool GameManager::syncFantasyDisplay()
 
 bool GameManager::clearReceivedFantasyMatchup()
 {
+  cancelFantasySlate();
+  fantasySlateCount = 0;
+  currentFantasySlateIndex = 0;
+  for (auto &matchup : fantasySlate) matchup = {};
   int8_t index = findReceivedLeague("FANTASY");
   if (index < 0)
   {

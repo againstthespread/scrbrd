@@ -152,6 +152,34 @@ int main()
   assert(manager.largeSlateOwnerIndex == -1);
   assert(!manager.hasReceivedContent());
 
+  // Explicit abort preserves committed data and removes all staged entries.
+  assert(manager.beginFantasySlate());
+  assert(manager.stageFantasyMatchup(makeFantasyMatchup("A")));
+  assert(manager.commitFantasySlate());
+  assert(manager.beginFantasySlate());
+  assert(manager.stageFantasyMatchup(makeFantasyMatchup("B")));
+  manager.cancelFantasySlate();
+  assert(manager.stagedFantasySlateCount == 0);
+  assert(manager.stagedFantasySlate[0].identity[0] == '\0');
+  assert(!manager.commitFantasySlate());
+  assert(std::strcmp(manager.getCurrentFantasyMatchup()->identity, "A") == 0);
+  // Category-capacity failure must not advance any committed fantasy state.
+  manager.clearReceivedContent();
+  makeGames(games, 1);
+  for (uint8_t i = 0; i < GameManager::MAX_RECEIVED_LEAGUES; ++i)
+  {
+    char name[13];
+    std::snprintf(name, sizeof(name), "L%u", i);
+    assert(manager.setReceivedSlate(name, games, 1));
+  }
+  assert(manager.beginFantasySlate());
+  assert(manager.stageFantasyMatchup(makeFantasyMatchup("overflow")));
+  assert(!manager.commitFantasySlate());
+  assert(manager.fantasySlateCount == 0);
+  assert(manager.stagedFantasySlateCount == 0);
+  assert(manager.receivedLeagueCount == GameManager::MAX_RECEIVED_LEAGUES);
+  assert(std::strcmp(manager.getCurrentLeagueName(), "L0") == 0);
+
   std::puts("GameManager storage tests passed");
   return 0;
 }

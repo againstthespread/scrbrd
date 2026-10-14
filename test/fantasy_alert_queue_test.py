@@ -58,7 +58,7 @@ functions = '\n'.join(function(sig) for sig in [
     'void drawCurrentScreen()', 'void startFantasyAlert(const FantasyAlertData &next)',
     'bool enqueueFantasyAlert(const FantasyAlertData &next)',
     'void finishFantasyAlert()', 'void expireFantasyAlertIfNeeded()',
-    'void markRealContentActivated()',
+    'void markRealContentActivated()', 'void expireFantasySlateIfNeeded()',
 ])
 # Exercise the actual authoritative control branch without ArduinoJson hardware.
 commands = function('void handleBluetoothCommand(const String &message)')
