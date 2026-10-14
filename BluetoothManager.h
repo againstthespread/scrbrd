@@ -23,6 +23,7 @@ public:
 
   bool isBluetoothConnected();
   bool takeDisconnectEvent();
+  bool takeReceiveLossEvent();
   const char *getBluetoothStatusText();
 
   bool hasReceivedMessage();

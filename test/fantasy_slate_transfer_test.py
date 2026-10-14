@@ -24,11 +24,13 @@ prefix = r'''
 #include <string>
 #include <vector>
 #include "GameManager.h"
+#include "responsiveness_timing.h"
 #include "fantasy_projection.h"
 using String = std::string;
 using std::isfinite;
 struct Serial { template<class T> void print(T) {} template<class T> void println(T) {} } USBSerial;
 unsigned long now = 100;
+unsigned long micros() { return now * 1000; }
 unsigned long millis() { return static_cast<uint32_t>(now); }
 const int LCD_BL = 1, HIGH = 1, LOW = 0;
 void digitalWrite(int, int) {}
@@ -37,12 +39,14 @@ struct Bluetooth {
   std::vector<String> messages;
   void updateBluetooth() {}
   bool isBluetoothConnected() { return connected; }
+  bool takeReceiveLossEvent() { return false; }
   bool takeDisconnectEvent() { bool result = ended; ended = false; return result; }
   bool hasReceivedMessage() { return !messages.empty(); }
   String getReceivedMessage() { auto result = messages.front(); messages.erase(messages.begin()); return result; }
 } bluetoothManager;
 int draws = 0;
 float displayedScore = -1;
+void handleBootButton() {}
 void drawCurrentScreen();
 void drawFantasyAlert() {}
 void drawDashboard();
@@ -69,7 +73,7 @@ enums = source[source.index('enum SyncLifecycleState'):source.index('const uint8
 data = source[source.index('const unsigned long FANTASY_ALERT_DURATION_MS'):source.index('BluetoothManager bluetoothManager;')]
 globals_ = source[source.index('bool deviceStandby'):source.index('// Chunked slate staging')]
 signatures = [
-    'void setDisplayBacklight(bool enabled)', 'void restoreStandbyAfterFantasyAlert()',
+    'void requestFantasyAlertRedraw()', 'void setDisplayBacklight(bool enabled)', 'void restoreStandbyAfterFantasyAlert()',
     'DeviceDisplayState currentDisplayState()', 'const char *displayStateDiagnostic(',
     'void drawCurrentScreen()', 'void startFantasyAlert(', 'void finishFantasyAlert()',
     'void expireFantasyAlertIfNeeded()', 'void markRealContentActivated()',
@@ -80,7 +84,7 @@ signatures = [
 for optional in ['void expireFantasySlateIfNeeded()', 'bool handleFantasySlateControlPacket(']:
     if optional in source:
         signatures.append(optional)
-signatures += ['void handleBluetoothCommand(', 'void handleBluetoothMessages()']
+signatures += ['void handleBluetoothCommand(', 'void serviceBluetoothTransferInterruptions()', 'void handleBluetoothMessages()']
 functions = '\n'.join(function(sig) for sig in signatures)
 
 tests = r'''
@@ -220,7 +224,7 @@ with tempfile.TemporaryDirectory(prefix='fantasy-slate-native-') as directory:
     cpp.write_text(prefix + enums + data + globals_ + functions + tests)
     executable = Path(directory) / 'test'
     subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
-                    '-Wno-missing-field-initializers', '-I' + str(root / 'test/native'),
+                    '-Wno-missing-field-initializers', *os.environ.get('NATIVE_SANITIZERS', '').split(), '-I' + str(root / 'test/native'),
                     '-I' + str(root), '-I' + include, str(cpp),
                     str(root / 'GameManager.cpp'), '-o', str(executable)], check=True)
     failed = [scenario for scenario in scenarios

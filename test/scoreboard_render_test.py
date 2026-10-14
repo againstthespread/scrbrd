@@ -18,6 +18,7 @@ harness = r'''
 #include <string>
 #include <vector>
 #include "GameManager.h"
+#include "responsiveness_timing.h"
 #include "pin_config.h"
 using std::max;
 class String : public std::string {

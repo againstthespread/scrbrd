@@ -1,4 +1,5 @@
 #include "GameManager.h"
+#include "responsiveness_timing.h"
 
 bool GameManager::hasReceivedContent() const
 {
@@ -130,6 +131,7 @@ bool GameManager::setReceivedSlate(
   uint8_t gameCount
 )
 {
+  ResponsivenessTiming::Scope timing(ResponsivenessTiming::Commit);
   lastSlateError = nullptr;
   if (gameCount == 0 || gameCount > MAX_LARGE_SLATE_GAMES)
   {
@@ -231,6 +233,7 @@ bool GameManager::setReceivedGolfLeaderboard(
   uint8_t golferCount
 )
 {
+  ResponsivenessTiming::Scope timing(ResponsivenessTiming::Commit);
   if (golferCount == 0 || golferCount > MAX_RECEIVED_GOLFERS)
   {
     return false;
@@ -280,6 +283,7 @@ bool GameManager::setReceivedGolfLeaderboard(
 
 bool GameManager::setReceivedFantasyMatchup(const FantasyMatchupData &matchup)
 {
+  ResponsivenessTiming::Scope timing(ResponsivenessTiming::Commit);
   // A legacy standalone update cannot safely identify which entry in a
   // committed multi-league slate it represents. Preserve the atomic slate.
   if (fantasySlateCount > 1 && findReceivedLeague("FANTASY") >= 0) return false;
@@ -341,6 +345,7 @@ bool GameManager::stageFantasyMatchup(const FantasyMatchupData &matchup)
 
 bool GameManager::commitFantasySlate()
 {
+  ResponsivenessTiming::Scope timing(ResponsivenessTiming::Commit);
   if (!fantasySlateTransferActive) return false;
   if (stagedFantasySlateCount > 0 && findReceivedLeague("FANTASY") < 0 &&
       receivedLeagueCount >= MAX_RECEIVED_LEAGUES)

@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <cstring>
 
+unsigned long micros();
+
 inline std::size_t strlcpy(char *destination, const char *source, std::size_t size)
 {
   const std::size_t sourceLength = std::strlen(source);

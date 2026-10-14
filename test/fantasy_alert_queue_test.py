@@ -24,6 +24,7 @@ prefix = r'''
 #include <string>
 #include <vector>
 #include "GameManager.h"
+#include "responsiveness_timing.h"
 using String = std::string;
 struct Serial { template<class T> void print(T) {} template<class T> void println(T) {} } USBSerial;
 unsigned long now = 0;
@@ -53,7 +54,7 @@ void clearStagingSlate(const char *) {}
 void clearGolfStaging(const char *) {}
 '''
 functions = '\n'.join(function(sig) for sig in [
-    'void setDisplayBacklight(bool enabled)', 'void enterStandby()',
+    'void requestFantasyAlertRedraw()', 'void setDisplayBacklight(bool enabled)', 'void enterStandby()',
     'void exitStandby()', 'void restoreStandbyAfterFantasyAlert()',
     'void drawCurrentScreen()', 'void startFantasyAlert(const FantasyAlertData &next)',
     'bool enqueueFantasyAlert(const FantasyAlertData &next)',

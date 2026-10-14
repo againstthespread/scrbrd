@@ -95,6 +95,9 @@ The same board target and libraries can be selected in Arduino IDE if preferred.
   navigation for team sports, PGA, and fantasy slates.
 - `game_data.h` defines display data structures and offline mock data;
   `fantasy_projection.h` validates and formats optional projected totals.
+- `responsiveness_timing.h` adds optional development timing (`SCRBRD_TIMING=1`);
+  [F33_VALIDATION.md](F33_VALIDATION.md) records evidence, simulated timings,
+  relocated-worktree commands, and required ESP #2 checks.
 - `pin_config.h` defines the display dimensions, colors, and GPIO map.
 - `test/game_manager_storage_test.cpp` covers native storage/navigation behavior;
   `test/fantasy_projection_test.cpp` covers optional projection parsing and
@@ -121,6 +124,7 @@ python3 test/scoreboard_render_test.py
 python3 test/test_sketch_test_runner.py
 python3 test/bluetooth_session_queue_test.py
 python3 test/fantasy_slate_transfer_test.py
+python3 test/responsiveness_test.py
 ```
 
 `test/fantasy_projection_test.cpp` additionally requires the ArduinoJson headers;
@@ -128,3 +132,10 @@ the full Arduino compile above validates its firmware integration.
 The fantasy-slate harness also requires ArduinoJson. It defaults to
 `~/Documents/Arduino/libraries/ArduinoJson/src`; set `ARDUINOJSON_INCLUDE` if your
 installed headers are elsewhere.
+
+The responsiveness harness exercises the real input/loop/protocol path with a
+simulated LCD, packet workload, USB backpressure, and time-indexed GPIO input.
+It is not a physical performance measurement. Enable native timing with
+`NATIVE_TIMING=-DSCRBRD_TIMING=1`; the responsiveness, fantasy-transfer, and BLE
+queue harnesses accept `NATIVE_SANITIZERS` compiler flags. The BLE queue test
+includes a concurrent producer/consumer ordering regression.

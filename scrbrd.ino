@@ -17,6 +17,7 @@
 #include "fantasy_projection.h"
 #include "pin_config.h"
 #include "HWCDC.h"
+#include "responsiveness_timing.h"
 
 // USB serial connection for debugging
 HWCDC USBSerial;
@@ -118,7 +119,13 @@ unsigned long lastBootButtonChangeTime = 0;
 unsigned long bootButtonPressStartedAt = 0;
 uint8_t pendingClickCount = 0;
 unsigned long lastClickTime = 0;
+// Coalesce packet-driven renders; only the loop renders while servicing RX.
+// Direct callers outside the loop retain immediate drawing behavior.
 bool deviceStandby = false;
+bool screenRedrawDeferred = false;
+bool screenRedrawRequested = false;
+bool priorityScreenRedrawRequested = false;
+bool fantasyAlertRedrawRequested = false;
 bool fantasyAlertWokeDisplayFromStandby = false;
 bool lastDisplayedBluetoothConnected = false;
 SyncLifecycleState syncLifecycleState = SYNC_WAITING;
@@ -167,6 +174,53 @@ void setDisplayBacklight(bool enabled)
 }
 
 
+void requestFantasyAlertRedraw()
+{
+  if (screenRedrawDeferred) fantasyAlertRedrawRequested = true;
+  else drawFantasyAlert();
+}
+
+
+void flushScreenRedraw()
+{
+  if (fantasyAlertRedrawRequested && fantasyAlertActive &&
+      (!deviceStandby || fantasyAlertWokeDisplayFromStandby))
+  {
+    fantasyAlertRedrawRequested = false;
+    drawFantasyAlert();
+  }
+  // Keep polling through debounce/click classification instead of spending
+  // each refresh on a full frame. User navigation/wake remains immediate.
+  else if (screenRedrawRequested && (priorityScreenRedrawRequested ||
+      (!bootButtonWasPressed && pendingClickCount == 0 && lastBootButtonReading == HIGH)))
+    drawCurrentScreen();
+}
+
+
+#if SCRBRD_TIMING
+void ARDUINO_ISR_ATTR recordBootButtonEdge()
+{
+  ResponsivenessTiming::physicalEdgeAt.store(micros());
+}
+#endif
+
+void reportResponsivenessTiming()
+{
+#if SCRBRD_TIMING
+  static uint32_t lastReportAt = 0;
+  const uint32_t now = millis();
+  if (now - lastReportAt < 5000) return;
+  lastReportAt = now;
+  char summary[256];
+  const int bytes = ResponsivenessTiming::summary(summary, sizeof(summary));
+  // Drop a report rather than waiting for a USB host or filling its TX ring.
+  if (bytes > 0 && bytes < static_cast<int>(sizeof(summary)) && USBSerial &&
+      USBSerial.availableForWrite() >= bytes)
+    USBSerial.write(reinterpret_cast<const uint8_t *>(summary), bytes);
+#endif
+}
+
+
 void enterStandby()
 {
   deviceStandby = true;
@@ -178,13 +232,14 @@ void enterStandby()
 
 void exitStandby()
 {
+  priorityScreenRedrawRequested = true;
   deviceStandby = false;
   fantasyAlertWokeDisplayFromStandby = false;
   setDisplayBacklight(true);
   USBSerial.println("Standby disabled; display backlight on.");
   if (fantasyAlertActive)
   {
-    drawFantasyAlert();
+    requestFantasyAlertRedraw();
   }
   else
   {
@@ -570,6 +625,7 @@ void drawFootballSituation(const GameData &game)
  */
 void drawScoreboard(const GameData &game)
 {
+  ResponsivenessTiming::Scope timing(ResponsivenessTiming::Renderer);
   // Scoreboard card
   gfx->fillRoundRect(
     TEAM_CARD_X, TEAM_CARD_Y, TEAM_CARD_WIDTH, TEAM_CARD_HEIGHT,
@@ -641,6 +697,7 @@ void drawScoreboard(const GameData &game)
 
 void drawGolfLeaderboard()
 {
+  ResponsivenessTiming::Scope timing(ResponsivenessTiming::Renderer);
   gfx->fillRoundRect(10, 58, 220, 210, 10, COLOR_DARK_GRAY);
   gfx->drawRoundRect(10, 58, 220, 210, 10, COLOR_LIGHT_BLUE);
 
@@ -695,6 +752,7 @@ String formatFantasyNumber(float value, bool includeSign)
 
 void drawFantasyAlert()
 {
+  ResponsivenessTiming::Scope timing(ResponsivenessTiming::Renderer);
   gfx->fillScreen(COLOR_NAVY);
   gfx->drawRoundRect(8, 8, 224, 264, 12, COLOR_LIGHT_BLUE);
 
@@ -774,6 +832,7 @@ void drawFantasyProjection(bool hasScore, float score, int16_t baselineY)
 
 void drawFantasyMatchup()
 {
+  ResponsivenessTiming::Scope timing(ResponsivenessTiming::Renderer);
   const FantasyMatchupData *matchup = gameManager.getCurrentFantasyMatchup();
   if (matchup == nullptr)
   {
@@ -835,6 +894,7 @@ void drawFantasyMatchup()
  */
 void drawDashboard()
 {
+  ResponsivenessTiming::Scope timing(ResponsivenessTiming::Renderer);
   gfx->fillScreen(BLACK);
 
   drawHeader();
@@ -897,10 +957,14 @@ const char *displayStateDiagnostic(DeviceDisplayState state)
 
 void drawCurrentScreen()
 {
-  if (fantasyAlertActive || deviceStandby)
+  screenRedrawRequested = true;
+  if (screenRedrawDeferred || fantasyAlertActive || deviceStandby)
   {
     return;
   }
+  screenRedrawRequested = false;
+  priorityScreenRedrawRequested = false;
+  ResponsivenessTiming::Scope timing(ResponsivenessTiming::Screen);
   const DeviceDisplayState state = currentDisplayState();
   if (state != lastLoggedDisplayState)
   {
@@ -929,6 +993,7 @@ void drawCurrentScreen()
       drawConnectScreen();
       break;
   }
+  ResponsivenessTiming::frameComplete();
 }
 
 
@@ -945,7 +1010,7 @@ void startFantasyAlert(const FantasyAlertData &next)
   }
   USBSerial.print("Fantasy alert displayed: ");
   USBSerial.println(fantasyAlert.player);
-  drawFantasyAlert();
+  requestFantasyAlertRedraw();
 }
 
 
@@ -982,6 +1047,7 @@ void finishFantasyAlert()
     return;
   }
   fantasyAlertActive = false;
+  fantasyAlertRedrawRequested = false;
   if (deviceStandby)
   {
     restoreStandbyAfterFantasyAlert();
@@ -1231,11 +1297,13 @@ bool handleGamePacket(const String &message)
   }
 
   JsonDocument document;
+  ResponsivenessTiming::Scope parseTiming(ResponsivenessTiming::Parse);
   DeserializationError error = deserializeJson(
     document,
     message.c_str(),
     message.length()
   );
+  parseTiming.finish();
 
   if (error)
   {
@@ -1293,11 +1361,13 @@ bool handleFantasyAlertPacket(const String &message)
     return false;
   }
   JsonDocument document;
+  ResponsivenessTiming::Scope parseTiming(ResponsivenessTiming::Parse);
   DeserializationError error = deserializeJson(
     document,
     message.c_str(),
     message.length()
   );
+  parseTiming.finish();
   if (error || !document.is<JsonObject>())
   {
     rejectGamePacket(error ? error.c_str() : "fantasy root is not object");
@@ -1379,7 +1449,9 @@ bool handleFantasyMatchupPacket(const String &message)
     return false;
   }
   JsonDocument document;
+  ResponsivenessTiming::Scope parseTiming(ResponsivenessTiming::Parse);
   DeserializationError error = deserializeJson(document, message.c_str(), message.length());
+  parseTiming.finish();
   if (error || !document.is<JsonObject>())
   {
     rejectGamePacket(error ? error.c_str() : "fantasy matchup root is not object");
@@ -1484,7 +1556,9 @@ bool handleFantasyClearPacket(const String &message)
     return false;
   }
   JsonDocument document;
+  ResponsivenessTiming::Scope parseTiming(ResponsivenessTiming::Parse);
   DeserializationError error = deserializeJson(document, message.c_str(), message.length());
+  parseTiming.finish();
   if (error || !document.is<JsonObject>())
   {
     rejectGamePacket(error ? error.c_str() : "fantasy clear root is not object");
@@ -1520,11 +1594,13 @@ bool handleSlatePacket(const String &message)
   }
 
   JsonDocument document;
+  ResponsivenessTiming::Scope parseTiming(ResponsivenessTiming::Parse);
   DeserializationError error = deserializeJson(
     document,
     message.c_str(),
     message.length()
   );
+  parseTiming.finish();
   if (error || !document.is<JsonObject>())
   {
     rejectGamePacket(error ? error.c_str() : "root is not an object");
@@ -1624,11 +1700,13 @@ bool readSlateTransferDocument(
     rejectGamePacket("invalid chunked slate packet size/UTF-8");
     return false;
   }
+  ResponsivenessTiming::Scope parseTiming(ResponsivenessTiming::Parse);
   DeserializationError error = deserializeJson(
     document,
     message.c_str(),
     message.length()
   );
+  parseTiming.finish();
   if (error || !document.is<JsonObject>())
   {
     rejectGamePacket(error ? error.c_str() : "root is not an object");
@@ -2049,6 +2127,7 @@ bool handleGolfEndPacket(const String &message)
  */
 void handleBluetoothCommand(const String &message)
 {
+  ResponsivenessTiming::Scope timing(ResponsivenessTiming::Packet);
   expireFantasySlateIfNeeded();
   if (message == "SYNC_START")
   {
@@ -2102,6 +2181,7 @@ void handleBluetoothCommand(const String &message)
     if (gameManager.hasReceivedContent())
     {
       gameManager.nextGame();
+      priorityScreenRedrawRequested = true;
       drawCurrentScreen();
     }
     return;
@@ -2113,17 +2193,20 @@ void handleBluetoothCommand(const String &message)
     if (gameManager.hasReceivedContent())
     {
       gameManager.nextLeague();
+      priorityScreenRedrawRequested = true;
       drawCurrentScreen();
     }
     return;
   }
 
   JsonDocument document;
+  ResponsivenessTiming::Scope parseTiming(ResponsivenessTiming::Parse);
   DeserializationError error = deserializeJson(
     document,
     message.c_str(),
     message.length()
   );
+  parseTiming.finish();
   if (!error && document.is<JsonObject>() &&
       document["type"].is<const char *>())
   {
@@ -2207,39 +2290,54 @@ void handleBluetoothCommand(const String &message)
 /**
  * Keep BLE handling isolated from display and button code.
  */
+void serviceBluetoothTransferInterruptions()
+{
+  const bool bluetoothConnected = bluetoothManager.isBluetoothConnected();
+  const bool disconnected = bluetoothManager.takeDisconnectEvent();
+  const bool receiveLost = bluetoothManager.takeReceiveLossEvent();
+  if (disconnected || receiveLost || !bluetoothConnected)
+  {
+    if (slateTransferActive) clearStagingSlate("disconnect or RX loss");
+    if (golfTransferActive) clearGolfStaging("disconnect or RX loss");
+    if (gameManager.isFantasySlateTransferActive() ||
+        !gameManager.isFantasySlateTransferInterrupted()) gameManager.cancelFantasySlate();
+    if (disconnected || !bluetoothConnected) authoritativeSyncSessionActive = false;
+  }
+}
+
+
 void handleBluetoothMessages()
 {
+  ResponsivenessTiming::Scope timing(ResponsivenessTiming::Ble);
   bluetoothManager.updateBluetooth();
   expireStagingSlateIfNeeded();
   expireGolfStagingIfNeeded();
   expireFantasySlateIfNeeded();
   expireFantasyAlertIfNeeded();
 
-  bool bluetoothConnected = bluetoothManager.isBluetoothConnected();
-  if (bluetoothManager.takeDisconnectEvent() ||
-      (!bluetoothConnected && !gameManager.isFantasySlateTransferInterrupted()))
-  {
-    gameManager.cancelFantasySlate();
-    authoritativeSyncSessionActive = false;
-  }
+  serviceBluetoothTransferInterruptions();
+  const bool bluetoothConnected = bluetoothManager.isBluetoothConnected();
 
   if (bluetoothConnected != lastDisplayedBluetoothConnected)
   {
     lastDisplayedBluetoothConnected = bluetoothConnected;
-    if (!bluetoothConnected)
-    {
-      authoritativeSyncSessionActive = false;
-    }
     drawCurrentScreen();
   }
 
-  if (!bluetoothManager.hasReceivedMessage())
+  // A bounded batch drains bursts without letting continuous RX own the loop.
+  // Poll between packets as well as before/after BLE work and rendering.
+  const uint32_t startedAt = micros();
+  for (uint8_t processed = 0; processed < 4 &&
+       bluetoothManager.hasReceivedMessage(); ++processed)
   {
-    return;
+    handleBootButton();
+    const String message = bluetoothManager.getReceivedMessage();
+    serviceBluetoothTransferInterruptions();
+    if (bluetoothManager.isBluetoothConnected() && message.length() > 0)
+      handleBluetoothCommand(message);
+    handleBootButton();
+    if (static_cast<uint32_t>(micros() - startedAt) >= 6000) break;
   }
-
-  const String message = bluetoothManager.getReceivedMessage();
-  if (bluetoothConnected && message.length() > 0) handleBluetoothCommand(message);
 }
 
 
@@ -2264,8 +2362,11 @@ void handlePendingClick()
     USBSerial.println("Single click ignored: no received content.");
     return;
   }
+  ResponsivenessTiming::classified();
   USBSerial.println("Single click: next game");
+  ResponsivenessTiming::navigating();
   gameManager.nextGame();
+  priorityScreenRedrawRequested = true;
   drawCurrentScreen();
 }
 
@@ -2285,8 +2386,11 @@ void countBootButtonClick()
       USBSerial.println("Double click ignored: no received content.");
       return;
     }
+    ResponsivenessTiming::classified();
     USBSerial.println("Double click: next league");
+    ResponsivenessTiming::navigating();
     gameManager.nextLeague();
+    priorityScreenRedrawRequested = true;
     drawCurrentScreen();
     return;
   }
@@ -2301,10 +2405,12 @@ void countBootButtonClick()
  */
 void handleBootButton()
 {
+  ResponsivenessTiming::poll();
   bool currentReading = digitalRead(BOOT_BUTTON_PIN);
 
   if (currentReading != lastBootButtonReading)
   {
+    ResponsivenessTiming::detectedEdge();
     lastBootButtonChangeTime = millis();
     lastBootButtonReading = currentReading;
   }
@@ -2368,6 +2474,8 @@ void handleBootButton()
 
 void setup()
 {
+  // Logging must never delay input or BLE callbacks when USB stops draining.
+  USBSerial.setTxTimeoutMs(0);
   USBSerial.begin(115200);
   USBSerial.println("Starting SCRBRD...");
 
@@ -2379,6 +2487,9 @@ void setup()
   pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
   lastBootButtonReading = digitalRead(BOOT_BUTTON_PIN);
   stableBootButtonState = lastBootButtonReading;
+#if SCRBRD_TIMING
+  attachInterrupt(digitalPinToInterrupt(BOOT_BUTTON_PIN), recordBootButtonEdge, CHANGE);
+#endif
 
   initializeDisplay();
   bluetoothManager.beginBluetooth();
@@ -2392,7 +2503,16 @@ void setup()
 
 void loop()
 {
+  screenRedrawDeferred = true;
+  handleBootButton();
   handleBluetoothMessages();
   handleBootButton();
+  screenRedrawDeferred = false;
+  flushScreenRedraw();
+  // A classification that becomes due during a frame schedules the next frame.
+  screenRedrawDeferred = true;
+  handleBootButton();
+  screenRedrawDeferred = false;
+  reportResponsivenessTiming();
   delay(10);
 }

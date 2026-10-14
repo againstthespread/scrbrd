@@ -13,18 +13,29 @@ namespace
   BLECharacteristic *wakeCharacteristic = nullptr;
 
   const unsigned long WAKE_NOTIFICATION_INTERVAL_MS = 20000;
-  unsigned long lastWakeNotificationTime = 0;
+  std::atomic<uint32_t> lastWakeNotificationTime{0};
 
   std::atomic<uint32_t> connectionGeneration{0};
   std::atomic<bool> disconnectPending{false};
-  bool clientConnected = false;
-  bool shouldAdvertise = false;
+  std::atomic<bool> clientConnected{false};
+  std::atomic<bool> shouldAdvertise{false};
+  std::atomic<bool> receiveLossPending{false};
   const uint8_t RECEIVED_MESSAGE_QUEUE_CAPACITY = 56;
-  String receivedMessages[RECEIVED_MESSAGE_QUEUE_CAPACITY];
-  uint32_t receivedMessageGenerations[RECEIVED_MESSAGE_QUEUE_CAPACITY] = {};
-  volatile uint8_t receivedMessageHead = 0;
-  volatile uint8_t receivedMessageTail = 0;
-  volatile uint8_t receivedMessageCount = 0;
+  // Bluedroid invokes onWrite on its single host task (one producer). The
+  // Arduino loop is the sole consumer. Each publishes its own index only
+  // after finishing all access to a slot; acquire/release transfers ownership.
+  // One spare slot distinguishes full from empty without a shared count.
+  const uint8_t RECEIVED_MESSAGE_QUEUE_STORAGE = RECEIVED_MESSAGE_QUEUE_CAPACITY + 1;
+  String receivedMessages[RECEIVED_MESSAGE_QUEUE_STORAGE];
+  uint32_t receivedMessageGenerations[RECEIVED_MESSAGE_QUEUE_STORAGE] = {};
+  std::atomic<uint8_t> receivedMessageHead{0};
+  std::atomic<uint8_t> receivedMessageTail{0};
+
+  void markReceiveLoss()
+  {
+    connectionGeneration.fetch_add(1);
+    receiveLossPending.store(true);
+  }
 
   class SportsHubServerCallbacks : public BLEServerCallbacks
   {
@@ -32,7 +43,7 @@ namespace
     {
       clientConnected = true;
       lastWakeNotificationTime = millis();
-      USBSerial.println("BLE client connected.");
+
     }
 
     void onDisconnect(BLEServer *server)
@@ -41,7 +52,7 @@ namespace
       disconnectPending.store(true);
       clientConnected = false;
       shouldAdvertise = true;
-      USBSerial.println("BLE client disconnected.");
+
     }
   };
 
@@ -52,21 +63,28 @@ namespace
       const uint32_t generation = connectionGeneration.load();
       auto value = characteristic->getValue();
 
-      if (receivedMessageCount >= RECEIVED_MESSAGE_QUEUE_CAPACITY)
+      const uint8_t tail = receivedMessageTail.load(std::memory_order_relaxed);
+      const uint8_t next = (tail + 1) % RECEIVED_MESSAGE_QUEUE_STORAGE;
+      if (value.length() == 0 || value.length() > 512 ||
+          next == receivedMessageHead.load(std::memory_order_acquire))
       {
-        USBSerial.println("BLE received-message queue full; packet rejected.");
+        // A known dropped packet invalidates staged transactions, including
+        // fantasy transfers whose compatible format has no entry count.
+        markReceiveLoss();
         return;
       }
 
-      String receivedMessage = String(value.c_str(), value.length());
-      receivedMessages[receivedMessageTail] = receivedMessage;
-      receivedMessageGenerations[receivedMessageTail] = generation;
-      receivedMessageTail =
-        (receivedMessageTail + 1) % RECEIVED_MESSAGE_QUEUE_CAPACITY;
-      receivedMessageCount++;
+      receivedMessages[tail] = String(value.c_str(), value.length());
+      if (receivedMessages[tail].length() != value.length())
+      {
+        markReceiveLoss();
+        return;
+      }
+      receivedMessageGenerations[tail] = generation;
+      receivedMessageTail.store(next, std::memory_order_release);
+      // Never log payloads from the BLE task: USB backpressure used to block
+      // the write callback (and its ATT response) for seconds.
 
-      USBSerial.print("BLE received message: ");
-      USBSerial.println(receivedMessage);
     }
   };
 }
@@ -133,16 +151,15 @@ void BluetoothManager::updateBluetooth()
     return;
   }
 
-  if (shouldAdvertise && bleAdvertising != nullptr)
+  if (shouldAdvertise.exchange(false) && bleAdvertising != nullptr)
   {
-    shouldAdvertise = false;
     bleAdvertising->start();
     USBSerial.println("BLE advertising restarted.");
   }
 
   // BLE WAKE notifications trigger the connected app's refresh path.
   const unsigned long now = millis();
-  if (now - lastWakeNotificationTime < WAKE_NOTIFICATION_INTERVAL_MS)
+  if (static_cast<uint32_t>(now - lastWakeNotificationTime.load()) < WAKE_NOTIFICATION_INTERVAL_MS)
   {
     return;
   }
@@ -186,29 +203,31 @@ const char *BluetoothManager::getBluetoothStatusText()
 
 bool BluetoothManager::hasReceivedMessage()
 {
-  return receivedMessageCount > 0;
+  return receivedMessageHead.load(std::memory_order_acquire) !=
+    receivedMessageTail.load(std::memory_order_acquire);
 }
 
 
 String BluetoothManager::getReceivedMessage()
 {
-  if (receivedMessageCount == 0)
-  {
-    return "";
-  }
+  const uint8_t head = receivedMessageHead.load(std::memory_order_relaxed);
+  if (head == receivedMessageTail.load(std::memory_order_acquire)) return "";
 
-  const bool current = receivedMessageGenerations[receivedMessageHead] ==
-    connectionGeneration.load();
-  String receivedMessage = current ? receivedMessages[receivedMessageHead] : String("");
-  receivedMessages[receivedMessageHead] = "";
-  receivedMessageHead =
-    (receivedMessageHead + 1) % RECEIVED_MESSAGE_QUEUE_CAPACITY;
-  receivedMessageCount--;
-  return receivedMessage;
+  const uint32_t generation = receivedMessageGenerations[head];
+  String receivedMessage = std::move(receivedMessages[head]);
+  receivedMessageHead.store((head + 1) % RECEIVED_MESSAGE_QUEUE_STORAGE,
+                           std::memory_order_release);
+  return generation == connectionGeneration.load() ? receivedMessage : String("");
 }
 
 // Remember even a disconnect/reconnect that occurs between loop iterations.
 bool BluetoothManager::takeDisconnectEvent()
 {
   return disconnectPending.exchange(false);
+}
+
+// Drop/capacity failures are consumed by the loop, which owns staging state.
+bool BluetoothManager::takeReceiveLossEvent()
+{
+  return receiveLossPending.exchange(false);
 }
