@@ -6,6 +6,18 @@ bool GameManager::hasReceivedContent() const
   return receivedLeagueCount > 0;
 }
 
+void GameManager::invalidateReceivedContentVerification()
+{
+  for (uint8_t index = 0; index < receivedLeagueCount; ++index)
+    receivedLeagues[index].verifiedSinceDisconnect = false;
+}
+
+bool GameManager::isCurrentReceivedContentVerified() const
+{
+  return receivedLeagueCount > 0 &&
+    receivedLeagues[currentReceivedLeagueIndex].verifiedSinceDisconnect;
+}
+
 void GameManager::clearReceivedContent()
 {
   cancelFantasySlate();
@@ -189,6 +201,7 @@ bool GameManager::setReceivedSlate(
   }
   target.gameCount = gameCount;
   target.contentType = RECEIVED_TEAM_SPORT;
+  target.verifiedSinceDisconnect = true;
 
   if (existingIndex < 0)
   {
@@ -260,6 +273,7 @@ bool GameManager::setReceivedGolfLeaderboard(
   }
   target.golferCount = golferCount;
   target.contentType = RECEIVED_GOLF;
+  target.verifiedSinceDisconnect = true;
   if (existingIndex < 0)
   {
     receivedLeagueCount++;
@@ -306,6 +320,7 @@ bool GameManager::setReceivedFantasyMatchup(const FantasyMatchupData &matchup)
   target.contentType = RECEIVED_FANTASY;
   target.gameCount = 1;
   target.fantasyMatchup = matchup;
+  target.verifiedSinceDisconnect = true;
   if (existingIndex < 0)
   {
     receivedLeagueCount++;
@@ -375,7 +390,9 @@ bool GameManager::commitFantasySlate()
   fantasySlateTransferInterrupted = false;
   currentFantasySlateIndex = selectedIndex;
   if (fantasySlateCount == 0) { clearReceivedFantasyMatchup(); return true; }
-  return syncFantasyDisplay();
+  if (!syncFantasyDisplay()) return false;
+  receivedLeagues[findReceivedLeague("FANTASY")].verifiedSinceDisconnect = true;
+  return true;
 }
 
 void GameManager::cancelFantasySlate()

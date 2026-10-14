@@ -20,6 +20,8 @@ public:
 
   const GameData &getCurrentGame();
   bool hasReceivedContent() const;
+  void invalidateReceivedContentVerification();
+  bool isCurrentReceivedContentVerified() const;
 
   bool setReceivedGame(
     const char *league,
@@ -80,6 +82,7 @@ private:
     GameData games[MAX_STANDARD_SLATE_GAMES];
     uint8_t gameCount;
     bool usesLargeSlateStorage;
+    bool verifiedSinceDisconnect;
     char tournamentId[49];
     char tournamentName[49];
     GolfLeaderboardRow golfers[MAX_RECEIVED_GOLFERS];

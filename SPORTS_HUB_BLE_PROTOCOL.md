@@ -22,12 +22,14 @@ Encoding on the writable characteristic:
 UTF-8 JSON or the short text control commands below
 
 Session lifecycle commands (existing writable characteristic):
-- `SYNC_START`: the app began an authoritative sync for a genuine new BLE connection session. SCRBRD clears the prior received-content catalog once, then rebuilds it in packet receipt order. Ordinary disconnects do not clear cached content.
-- `SYNC_COMPLETE`: the sync completed with at least one successfully loaded league. Content transfers themselves also activate the normal dashboard for older app compatibility.
-- `SYNC_EMPTY`: the app explicitly completed the authoritative sync with zero enabled/available content. SCRBRD shows the no-content state.
+- `SYNC_START`: begins an authoritative catalog replacement. SCRBRD immediately clears the prior received-content catalog once per active attempt, then rebuilds it in packet receipt order. The app fetches and validates all enabled providers before sending this command, including on retries of failed synchronization. Ordinary disconnects do not clear cached content.
+- `SYNC_COMPLETE`: finishes an attempt with transferred content; it also closes an already-started attempt after a transfer failure so a later retry can start. It does not verify that all enabled providers succeeded. Content transfers themselves also activate the normal dashboard for older app compatibility.
+- `SYNC_EMPTY`: the app explicitly completed an authoritative sync after all enabled providers succeeded with genuinely empty content (or all categories were intentionally disabled). SCRBRD shows the no-content state.
 - These short text commands are backward-compatible, use the existing RX characteristic, and do not change protocol version or UUIDs.
 - `SYNC_EMPTY` is never inferred merely because packets have not arrived.
-- Cached team/PGA content survives BLE disconnect, remains navigable, and is marked `UPDATES PAUSED` until reconnection.
+- Cached content survives BLE disconnect and remains navigable with `UPDATES PAUSED`. After reconnection, this firmware shows `CACHED / UNVERIFIED` for each category until that category receives a valid committed replacement. Reconnection, navigation and terminal sync commands alone do not verify retained content.
+- On provider failure, the app omits `SYNC_START` and can commit complete available categories individually while retaining unknown categories. Fantasy replacement is withheld if any configured fantasy provider failed, because a partial replacement would remove its cached peers. Empty/disabled sports removals wait until a fully known replacement; existing packets have no targeted sports-clear command.
+- F07 changes no command semantics or packet formats. Older firmware benefits from the app retaining content but lacks the per-category unverified warning. See `F07_VALIDATION.md` for the remaining whole-catalog transaction limitations.
 
 Game packet:
 

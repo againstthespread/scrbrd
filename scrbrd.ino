@@ -917,7 +917,9 @@ void drawUpdatesPausedWarning()
 {
   gfx->fillRoundRect(76, 11, 124, 14, 4, COLOR_DARK_BLUE);
   drawTextCenteredInRegion(
-    "UPDATES PAUSED", 78, 198, 15, 1, COLOR_WARNING
+    bluetoothManager.isBluetoothConnected()
+      ? "CACHED / UNVERIFIED" : "UPDATES PAUSED",
+    78, 198, 15, 1, COLOR_WARNING
   );
 }
 
@@ -926,7 +928,8 @@ DeviceDisplayState currentDisplayState()
 {
   if (gameManager.hasReceivedContent())
   {
-    return bluetoothManager.isBluetoothConnected()
+    return bluetoothManager.isBluetoothConnected() &&
+        gameManager.isCurrentReceivedContentVerified()
       ? DISPLAY_LIVE_CONTENT
       : DISPLAY_LIVE_CONTENT_PAUSED;
   }
@@ -2297,6 +2300,12 @@ void serviceBluetoothTransferInterruptions()
   const bool receiveLost = bluetoothManager.takeReceiveLossEvent();
   if (disconnected || receiveLost || !bluetoothConnected)
   {
+    const bool wasVerified = gameManager.isCurrentReceivedContentVerified();
+    gameManager.invalidateReceivedContentVerification();
+    // A short disconnect/reconnect can leave the observed BLE state unchanged.
+    // Still schedule the cached warning; drawCurrentScreen respects deferral,
+    // standby and alert overlays.
+    if (wasVerified) drawCurrentScreen();
     if (slateTransferActive) clearStagingSlate("disconnect or RX loss");
     if (golfTransferActive) clearGolfStaging("disconnect or RX loss");
     if (gameManager.isFantasySlateTransferActive() ||
