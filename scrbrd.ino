@@ -616,7 +616,7 @@ void drawScoreboard(const GameData &game)
   // Game clock
   const bool showsBaseballSituation =
     strcmp(gameManager.getCurrentLeagueName(), "MLB") == 0 &&
-    strcmp(game.status, "LIVE") == 0;
+    strcmp(game.status, "LIVE") == 0 && game.hasBaseballState;
   const bool showsFootballSituation =
     (strcmp(gameManager.getCurrentLeagueName(), "NFL") == 0 ||
      strcmp(gameManager.getCurrentLeagueName(), "NCAAF") == 0) &&

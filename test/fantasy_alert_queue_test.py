@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
-source = (root / 'SportsHub.ino').read_text()
+source = (root / 'scrbrd.ino').read_text()
 
 def function(signature):
     start = source.index(signature + '\n{')

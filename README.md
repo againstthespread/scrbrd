@@ -87,7 +87,7 @@ The same board target and libraries can be selected in Arduino IDE if preferred.
 
 ## Source and tests
 
-- `SportsHub.ino` owns display rendering, protocol parsing, staged transfers,
+- `scrbrd.ino` owns display rendering, protocol parsing, staged transfers,
   sync/display state, fantasy alerts, and BOOT-button handling.
 - `BluetoothManager.h` / `BluetoothManager.cpp` own advertising, the writable
   characteristic, periodic wake notifications, and the incoming message queue.
@@ -100,6 +100,9 @@ The same board target and libraries can be selected in Arduino IDE if preferred.
   `test/fantasy_projection_test.cpp` covers optional projection parsing and
   formatting; `test/fantasy_alert_queue_test.py` exercises the real alert,
   standby, sync, and queue functions through a generated native harness.
+- `test/scoreboard_render_test.py` exercises the real scoreboard renderer's
+  situational-state availability and clock/team/score layout with drawing stubs;
+  `test/test_sketch_test_runner.py` checks the alert runner from another directory.
 
 Run the self-contained native tests from the repository root with a C++17
 compiler on `PATH`:
@@ -110,6 +113,8 @@ c++ -std=c++17 -Itest/native -I. \
   -o /tmp/scrbrd-game-manager-test
 /tmp/scrbrd-game-manager-test
 python3 test/fantasy_alert_queue_test.py
+python3 test/scoreboard_render_test.py
+python3 test/test_sketch_test_runner.py
 ```
 
 `test/fantasy_projection_test.cpp` additionally requires the ArduinoJson headers;
