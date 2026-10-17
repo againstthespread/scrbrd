@@ -1,0 +1,6 @@
+ee5b0c6bba4915002f5f1a325c2b8bac4f449523 Keep cached categories unverified until replacement commits (F07)
+3f132b077ae6f37587bf87efe2862e7e76ebd38d Strengthen F06 Bluetooth RX concurrency and saturation regressions
+fba7263d21194c545ceaec26c9709073a6568cf3 Protect navigation selection and allocation-free BLE dequeue after F33
+1c38d8cdd1728e127d7f73d40b28c3e395a8d56e Restore navigation responsiveness and protect BLE transfers under load
+8788f003ef43b49e088de4c05d3d1bbf66d27c3d Preserve fantasy selection and harden compatible slate commits
+1356878667acd651429436d0ea1839f48ab830ec Fix MLB state visibility and renamed firmware test runner

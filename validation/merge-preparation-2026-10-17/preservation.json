@@ -1,0 +1,96 @@
+{
+  "date": "2026-10-17",
+  "preparedUtc": "2026-10-17T16:53:19.023863+00:00",
+  "repositories": {
+    "firmware": {
+      "path": "/Users/peterdeluca/Projects/_worktrees/scrbrd-codex",
+      "head": "ee5b0c6bba4915002f5f1a325c2b8bac4f449523",
+      "main": "f5967a8993dcb03e1430002cbc3c3a357559cd39",
+      "untrackedFileHashes": {
+        ".DS_Store": "51bd5155a81171eb184eea24eaf8088213a77ca83310fda1762fc3381ca70c12",
+        "H01_DIAGNOSTIC_INVESTIGATION.md": "ea64b20cc6778de09e53e14a6949c465a0c8d546b60afc90f5242cecbc520f41",
+        "HARDWARE_SETUP.md": "2aaf76bd571dbcc697648d04c5777d7ca2fe4c0bbf05e4e110c8e16c3dee3546",
+        "HARDWARE_VALIDATION.md": "8eb149331bfeb41e0a80285615d7f88f7db21e8c60f8b826d314bab8ac7b2dea",
+        "HARDWARE_VALIDATION_RESULTS.md": "ac92e18d82acbea153c0d4da01af45dadbeb3ed160ec15c959a2889111bcbbd0",
+        "HARDWARE_VALIDATION_SUMMARY.md": "a329f9d5d390005274b3f8d76c87d66a9202dd20657100b82460c2959ff6ef13",
+        "scrbrd/BluetoothManager.cpp": "de87e5aaf8c49c187468900c76667a706eeb36cd0a81ad5845c64783f873f5e4",
+        "scrbrd/BluetoothManager.h": "8bdd49cb6b73c1ac27c0d15f30a0b8088ed2a28ec458ffa5fbdb1e5dc4b3405e",
+        "scrbrd/F03_F04_VALIDATION.md": "2aa319b70890c79c2e68924165cd8cdac10d55b444cf48a430f4059c0f2041f8",
+        "scrbrd/F06_VALIDATION.md": "e454435ab977d46144dedaef1c4ca788f18740cb4955f4f8ab378d4c8d2756dd",
+        "scrbrd/F07_VALIDATION.md": "11a5d4767504f99bf5c38476a7a1db6395f566c7932982afaf21dbac68677c38",
+        "scrbrd/F33_VALIDATION.md": "73e340701164759f3fff95b7b0518c32544eafaa51b834f10ccdda6e4a150a0f",
+        "scrbrd/F34_SYSTEM_INTEGRITY_AUDIT.md": "91253edf34ae4dd4f17e57c7321e3fd4088de42603bc502d74aa105577295288",
+        "scrbrd/GameManager.cpp": "b607a8148fbdf72337db89a38133b9dc29cc8c1659fc4167432eb74ac90b8ccf",
+        "scrbrd/GameManager.h": "b38a05e5a57d932373f6321e15ce0645085e805e8a4509b52aa7b15e1b10008f",
+        "scrbrd/PRODUCTION_READINESS_AUDIT.md": "35d91f6e69c85f774282982f1d2a59ce458ba9acae5bdde3f48c4e7d0708eee4",
+        "scrbrd/README.md": "369d42de85f93e4fc4e1646fa0994783cfb591e0e50fb00065614355ef7a2212",
+        "scrbrd/SPORTS_HUB_BLE_PROTOCOL.md": "f002d6159c6c2932ffdc5c66556ecd1075fe09aaabe87b166f8ce27e7f067331",
+        "scrbrd/fantasy_projection.h": "4faf4f1092952a8bb917f8f6711738eea5ceb8202bbc42a054f2bef8a1c60cb2",
+        "scrbrd/game_data.h": "a290e63cff8a646082f1cbf28a6cafa5ce21ac13e8a43606f6a9a938b876c4ba",
+        "scrbrd/hardware/case/esp32s3-169-case-stacked.3mf": "4beefdd7fb8db5e873de08e1554b05ac822266317fa3981a486e16825a0551b9",
+        "scrbrd/pin_config.h": "ab21827f81516a4a959d5d6899c2306d2bb340eccd1cb67a95055ac7e1b1730f",
+        "scrbrd/responsiveness_timing.h": "b6f764fe0374fc1b6deb40ee483fc20fc87c90c7281789badcdb1e3dcb4f902a",
+        "scrbrd/scrbrd.ino": "52ad2568f41fae9897a1acfff6eb3e4ef407fa05ed8c09f1cef878c50543187b",
+        "scrbrd/test/bluetooth_session_queue_test.py": "0c7d41897cfaed2075c7601d1c7d8cee6caabbfba8f209031feaf9b9666dab6c",
+        "scrbrd/test/cached_content_verification_test.py": "c838f4ec9f1bfaebd76e6e3a30767faa2fcce5013566d6a31f114e67414f2e81",
+        "scrbrd/test/fantasy_alert_queue_test.py": "4357e6e0b7baa53408c2c0b5d7804e62b503a781a4986e22e9095e6eaa955a57",
+        "scrbrd/test/fantasy_projection_test.cpp": "5e3bcd9995ac252f1c4b06919ba9e2867715a409459d7f8465c1023dd68938fa",
+        "scrbrd/test/fantasy_slate_transfer_test.py": "69efe08c69dfa7a4cf3fd4cbc250ea760576c2666424b3553f67e4fb8bc59845",
+        "scrbrd/test/game_manager_storage_test.cpp": "1abb095f7dc683235a4ebafdd12d587b331700486929c83e567eedaf9bc17555",
+        "scrbrd/test/mobile_protocol_compatibility_test.py": "7f7fbb4f4cba1f1fabfc0495f9b241db4346c965cd84f0cc89a753ecd51f6117",
+        "scrbrd/test/native/Arduino.h": "8a4f3bb7a3d8647a49224df90b871dc7fcd41028940b97885160c679e0f3b803",
+        "scrbrd/test/responsiveness_test.py": "161c6a113a214e952912b81878a4cb922eb1124cd46272860c70390d056bf19d",
+        "scrbrd/test/scoreboard_render_test.py": "262f4ba148f542b2fc658c2941b13c3a4adc487bc9c9d4236d4066288685fef6",
+        "scrbrd/test/test_sketch_test_runner.py": "49555f4237980e889a4540de6dedea6057f86c93f686e2040fceed0c3f670d30"
+      },
+      "preservationArchive": "/Users/peterdeluca/Projects/_worktrees/scrbrd-codex/build/merge-preparation-2026-10-17/firmware-uncommitted-preservation.tar.gz",
+      "archiveSha256": "9463f3275ae2bcccb58963731ba7050d4af356a9d4cfb3a60ea914123ab9e97c",
+      "byteIdenticalTrackedFiles": 29
+    },
+    "mobile": {
+      "path": "/Users/peterdeluca/Projects/_worktrees/scrbrd-mobile-codex",
+      "head": "bcab9097ccc17459e6a8c5948aceb59a8b4437d4",
+      "main": "7785c601fb733369b8dd3057722460de6e96d733",
+      "untrackedFileHashes": {
+        "INTEGRATED_HARDWARE_VALIDATION.md": "beaec7099b454e931a8d76783dd1f4898d96323ba063d945471f06742c2b88b5"
+      },
+      "preservationArchive": "/Users/peterdeluca/Projects/_worktrees/scrbrd-codex/build/merge-preparation-2026-10-17/mobile-uncommitted-preservation.tar.gz",
+      "archiveSha256": "2f775262cdedfcf67e6a2094abae9230cb15a82dc296f0a330aa799c7626bea1"
+    }
+  },
+  "associatedWorktrees": {
+    "lab1008": {
+      "path": "/private/tmp/scrbrd-hardware-validation/ios-source-h01-fix-1008",
+      "revision": "8d9cbba06110b7bcd013dde241f7058e2c6681cd",
+      "modifiedFiles": [
+        "ios/Runner.xcodeproj/project.pbxproj",
+        "ios/Runner/Info.plist",
+        "lib/firebase_options.dart"
+      ],
+      "action": "Retained without modification; additional diff, tar archive and SHA256 list preserved in evidence directory."
+    },
+    "legacyFirmware": {
+      "path": "/Users/peterdeluca/Projects/SportsHub-fantasy-slate",
+      "branch": "fantasy-multi-league-browsing",
+      "head": "3925e603e57a616085e74ec527b24c541e35d014",
+      "gitdirText": "gitdir: /Users/peterdeluca/Projects/SportsHub/.git/worktrees/SportsHub-fantasy-slate\n",
+      "trackedFileCount": 1120,
+      "trackedPathsDifferentFromHead": [],
+      "preservedNonBuildFiles": {
+        "BluetoothManager.cpp": "3cbbf76fbfdd587e16d138e53fdc1ed3be84d6c1422cc97fce9e9db83ee28f56",
+        "pin_config.h": "ab21827f81516a4a959d5d6899c2306d2bb340eccd1cb67a95055ac7e1b1730f",
+        "BluetoothManager.h": "03f28f91b6de37661a6e3346c5122d08ef0a27635bfb1c87cd806859b9b20b28",
+        "game_data.h": "dbe67a6edb988ba6d0d1d1dff79a02ddfd78ca843c736f8419e1bb3da1f52a30",
+        ".gitignore": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "SPORTS_HUB_BLE_PROTOCOL.md": "b4f78782915f1750f37f66a7ce5aae314ecfa8346ec61a739099094d60b6b169",
+        "GameManager.cpp": "9bdeaeb88149391d16afea21aca3ed2ebf6490a606ebd33a34315740582ff8c8",
+        "SportsHub.ino": "f68cbf915662cffae7ac4aa67404cc030db396dac032ad65c512ba83c7e4ee96",
+        "GameManager.h": "0202e5e724a41210310af32a065cdebde482df3d025c31b21e99853c9146b5dd",
+        "test/fantasy_alert_queue_test.py": "9931ec396c7dec3e69e6c35b058c63d6650a15e847b43ec77a86044e92998153",
+        "test/game_manager_storage_test.cpp": "b97ba1df0b7c60f59636eb6ee03e91cc87b41839f623ce93d6e840b49f557847",
+        "test/native/Arduino.h": "8e132d5e130f811d82919bd1fcf3daa5a00b597b9ceec11176ee11c7c71bfebe"
+      },
+      "action": "Preserved files and stale .git pointer; no repair, prune, stage or merge of this legacy worktree. Ignored build artifacts retained in place."
+    }
+  }
+}

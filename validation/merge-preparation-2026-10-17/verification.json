@@ -1,0 +1,115 @@
+{
+  "date": "2026-10-17",
+  "sourceRevisions": {
+    "firmware": "ee5b0c6bba4915002f5f1a325c2b8bac4f449523",
+    "mobile": "bcab9097ccc17459e6a8c5948aceb59a8b4437d4"
+  },
+  "flutter": {
+    "version": "3.47.0",
+    "dart": "3.13.0",
+    "testsPassed": 952,
+    "fullSuiteExitCode": 0,
+    "analysis": "No issues found",
+    "pubGet": "offline --enforce-lockfile; passed"
+  },
+  "native": [
+    {
+      "name": "storage",
+      "exitCode": 0,
+      "seconds": 0.7
+    },
+    {
+      "name": "projection-existing",
+      "exitCode": 0,
+      "seconds": 0.68
+    },
+    {
+      "name": "fantasy_alert_queue_test",
+      "exitCode": 0,
+      "seconds": 0.52
+    },
+    {
+      "name": "scoreboard_render_test",
+      "exitCode": 0,
+      "seconds": 0.57
+    },
+    {
+      "name": "test_sketch_test_runner",
+      "exitCode": 0,
+      "seconds": 0.57
+    },
+    {
+      "name": "bluetooth_session_queue_test",
+      "exitCode": 0,
+      "seconds": 0.61
+    },
+    {
+      "name": "fantasy_slate_transfer_test",
+      "exitCode": 0,
+      "seconds": 0.76
+    },
+    {
+      "name": "responsiveness_test",
+      "exitCode": 0,
+      "seconds": 0.98
+    },
+    {
+      "name": "cached_content_verification_test",
+      "exitCode": 0,
+      "seconds": 0.45
+    }
+  ],
+  "protocolCompatibility": {
+    "exitCode": 0,
+    "scenarios": 18,
+    "packets": 112,
+    "fixtureSha256": "7fb79b47c0016109302b902ea3bd2570414c08d68b7c2b8a3735c6d781c728fc"
+  },
+  "sanitizers": {
+    "BLEQueueThreadSanitizer": "PASS: 70,000 concurrent packets, 200 full bursts, overflow/allocation/reconnect cases",
+    "responsivenessAddressAndUndefinedBehaviorSanitizers": "PASS: all 15 scenarios"
+  },
+  "firmwareBuilds": {
+    "fqbn": "esp32:esp32:esp32s3",
+    "esp32Core": "3.3.11",
+    "ArduinoJson": "7.4.3",
+    "ArduinoGfx": "1.6.7",
+    "release": {
+      "exitCode": 0,
+      "flashBytes": 780585,
+      "staticRamBytes": 139912
+    },
+    "SCRBRD_TIMING=1": {
+      "exitCode": 0,
+      "flashBytes": 785217,
+      "staticRamBytes": 140608
+    }
+  },
+  "ios": {
+    "exitCode": 0,
+    "configuration": "Release, iphoneos generic destination, unsigned",
+    "xcode": "27.0 (27A266a)",
+    "bundleId": "com.againstthespread.scrbrd",
+    "version": "1.0.0",
+    "build": "6",
+    "automaticPackageResolution": false,
+    "onlyUsePackageVersionsFromResolvedFile": true,
+    "dartAndSwiftLockfilesUnchanged": true,
+    "warningLines": 75,
+    "warnings": "Existing Firebase/reactive_ble_mobile/Flutter dependency warnings and AppIntents metadata note; no dependency/source edits made. Swift 6 language-mode migration remains separate work.",
+    "nativeTestTarget": "RunnerTests contains only an empty template test; no substantive additional native iOS test suite or integration_test directory exists."
+  },
+  "lab1009Preservation": {
+    "candidateFileHashesVerified": 90,
+    "sourceArchiveFilesVerifiedAgainstGit": 290,
+    "sourceArchiveSha256": "97bb2415cd2bc9d447a50d8418116b09ba91c80954c3ec3b99ac0bbd07b48ba7"
+  },
+  "limits": [
+    "F28 projection discrepancy deferred pending commercial data licensing; no new investigation or calculation change.",
+    "No physical ESP, installed iPhone app, flash, install, launch or hardware validation actions in this preparation.",
+    "Existing hardware evidence is provisional and sampled; active-transfer interruption/real queue contention, silent-WAKE fault, real alert retry, live NBA/MLB and overnight/power cases remain unexercised.",
+    "BLE native write completion does not confirm ESP application acceptance."
+  ],
+  "logsDirectory": "/Users/peterdeluca/Projects/_worktrees/scrbrd-codex/build/merge-preparation-2026-10-17",
+  "mainMerges": "Not performed; explicit approval required."
+}
